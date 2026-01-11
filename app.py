@@ -4,136 +4,111 @@ import pandas as pd
 import numpy as np
 from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt import risk_models, expected_returns
-import plotly.graph_objects as go
 import plotly.express as px
 
+# --- PAGE CONFIG ---
 st.set_page_config(page_title="Strategic Asset Lab", layout="wide")
 
+# --- HEADER ---
 st.title("🏛️ Strategic Asset Allocation & Risk Engine")
 st.markdown("---")
 
-# --- MARKET HEALTH MONITOR (Debugged) ---
-try:
-    # Fetching VIX to explain the "Why" behind the AI's choices
-    vix_ticker = yf.Ticker("^VIX")
-    vix_data = vix_ticker.history(period="1d")
-    
-    if not vix_data.empty:
-        # Use .item() or .iloc[0] to avoid the "ambiguous truth value" error
-        current_vix = vix_data['Close'].iloc[-1]
-        
-        st.sidebar.header("Market Context")
-        if current_vix > 25:
-            st.sidebar.warning(f"⚠️ VIX is High ({current_vix:.2f}): Markets are fearful. Defensive stocks (Utilities) preferred.")
-        elif current_vix < 15:
-            st.sidebar.success(f"✅ VIX is Low ({current_vix:.2f}): Markets are calm. Growth stocks (Tech) often lead.")
-        else:
-            st.sidebar.info(f"ℹ️ VIX is Moderate ({current_vix:.2f}): Standard market conditions apply.")
-except Exception:
-    st.sidebar.info("VIX Monitor: Data currently unavailable.")
-
 # --- SIDEBAR SETTINGS ---
-st.sidebar.header("Portfolio Parameters")
-tickers = st.sidebar.text_input("Assets", "AAPL, MSFT, JPM, XOM, COST, NEE, V")
-tickers_list = [t.strip().upper() for t in tickers.split(",")]
-max_weight = st.sidebar.slider("Max Allocation per Stock (%)", 10, 50, 35) / 100
-start_date = st.sidebar.date_input("Analysis Start Date", value=pd.to_datetime("2022-01-01"))
+with st.sidebar:
+    st.header("Portfolio Settings")
+    
+    # Global Asset Management Tickers
+    default_tickers = "AAPL, MSFT, JPM, MC.PA, ASML, NESN.SW, 2330.TW, 7203.T"
+    assets = st.text_input("Enter Tickers (Comma separated)", default_tickers)
+    
+    start_date = st.date_input("Start Date", value=pd.to_datetime("2020-01-01"))
+    
+    st.divider()
+    
+    # Placeholder for Download Button (Defined later in code)
+    download_placeholder = st.empty()
 
-if st.sidebar.button("Analyze & Optimize"):
-    try:
-        # 1. DATA ACQUISITION
-        data = yf.download(tickers_list + ["SPY"], start=start_date)['Close']
-        stock_prices = data[tickers_list].dropna()
-        benchmark_prices = data["SPY"].dropna()
+    st.divider()
+    st.caption("📂 **Institutional Disclosure**")
+    st.caption("""
+    **FX Normalization:** This engine currently calculates returns 
+    using local currency price data. For institutional global 
+    portfolios, returns should be normalized to a base currency 
+    (e.g., USD).
+    """)
+    st.caption("Developed by Ishaan Sharma | Asset Management Tool")
 
-        # 2. CORE OPTIMIZATION
-        mu = expected_returns.mean_historical_return(stock_prices)
-        S = risk_models.sample_cov(stock_prices)
-        ef = EfficientFrontier(mu, S, weight_bounds=(0.02, max_weight))
-        weights = ef.max_sharpe()
-        cleaned_weights = ef.clean_weights()
-        ret, vol, sharpe = ef.portfolio_performance()
+# --- DATA FETCHING ---
+ticker_list = [t.strip() for t in assets.split(",")]
 
-        # 3. STRATEGIC INSIGHTS
-        st.subheader("💡 AI Strategic Recommendation")
-        best_stock = max(cleaned_weights, key=cleaned_weights.get)
+@st.cache_data
+def get_data(tickers, start):
+    data = yf.download(tickers, start=start)['Close']
+    return data
+
+try:
+    data = get_data(ticker_list, start_date)
+    returns = data.pct_change().dropna()
+
+    # --- OPTIMIZATION LOGIC ---
+    mu = expected_returns.mean_historical_return(data)
+    S = risk_models.sample_cov(data)
+
+    ef = EfficientFrontier(mu, S)
+    # Adding a constraint: No single asset more than 35% (Institutional Standard)
+    ef.add_constraint(lambda x: x <= 0.35)
+    
+    # Optimize for Sharpe Ratio
+    raw_weights = ef.max_sharpe()
+    weights = ef.clean_weights()
+    
+    # --- CALCULATIONS FOR RISK METER ---
+    weights_arr = np.array(list(weights.values()))
+    portfolio_return = (weights_arr * returns.mean()).sum()
+    portfolio_std = np.sqrt(np.dot(weights_arr.T, np.dot(returns.cov(), weights_arr)))
+    
+    # 95% Daily Value-at-Risk (VaR)
+    var_95 = -(portfolio_return - 1.645 * portfolio_std)
+
+    # --- DISPLAY RESULTS ---
+    col_left, col_right = st.columns([1, 1])
+
+    with col_left:
+        st.subheader("📈 Optimal Allocations")
+        weights_df = pd.DataFrame.from_dict(weights, orient='index', columns=['Weight'])
+        weights_df = weights_df[weights_df['Weight'] > 0] # Filter out 0% weights
         
-        col_ex1, col_ex2 = st.columns(2)
-        with col_ex1:
-            st.info(f"**Dominant Asset: {best_stock}**")
-            st.write(f"The model allocated **{cleaned_weights[best_stock]:.1%}** to this asset. This ensures the highest return for every unit of risk taken.")
-        with col_ex2:
-            st.info("**Strategy Horizon**")
-            st.write("This allocation is optimized for a 6–18 month horizon. Effects typically shift with quarterly earnings and interest rate changes.")
+        fig = px.pie(weights_df, values='Weight', names=weights_df.index, hole=0.4,
+                     color_discrete_sequence=px.colors.sequential.RdBu)
+        st.plotly_chart(fig, use_container_width=True)
 
-        # 4. DASHBOARD METRICS
-        st.markdown("---")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Expected Return", f"{ret:.2%}")
-        m2.metric("Portfolio Sharpe", f"{sharpe:.2f}")
-        m3.metric("Daily Risk (VaR-Adj)", f"{(vol/np.sqrt(252)):.2%}")
-        m4.metric("Market Correlation", "Optimized")
+    with col_right:
+        st.subheader("🛡️ Risk Analysis")
+        
+        if var_95 < 0.02:
+            status, color = "Low Risk", "normal"
+        elif var_95 < 0.04:
+            status, color = "Moderate Risk", "off"
+        else:
+            status, color = "High Risk", "inverse"
 
-        # 5. VISUALS
-        c1, c2 = st.columns([1, 2])
-        with c1:
-            st.plotly_chart(px.pie(values=list(cleaned_weights.values()), names=list(cleaned_weights.keys()), hole=0.4, title="Optimal Allocation"), use_container_width=True)
-        with c2:
-            # Backtest vs Benchmark
-            cum_portfolio = (1 + (stock_prices.pct_change() * pd.Series(cleaned_weights)).sum(axis=1)).cumprod()
-            cum_benchmark = (1 + benchmark_prices.pct_change()).cumprod()
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=cum_portfolio.index, y=cum_portfolio, name="AI Portfolio"))
-            fig.add_trace(go.Scatter(x=cum_benchmark.index, y=cum_benchmark, name="S&P 500 (SPY)", line=dict(dash='dash')))
-            fig.update_layout(title="Performance vs. Benchmark", template="plotly_white")
-            st.plotly_chart(fig, use_container_width=True)
+        st.metric(label="95% Daily Value-at-Risk (VaR)", value=f"{var_95:.2%}", delta=status, delta_color=color)
+        st.info("This metric indicates the maximum expected loss over a 1-day period with 95% confidence.")
+        
+        # Display Weights Table
+        st.dataframe(weights_df.style.format("{:.2%}"), use_container_width=True)
 
-    except Exception as e:
+    # --- ACTIVATE DOWNLOAD BUTTON ---
+    csv = weights_df.to_csv().encode('utf-8')
+    download_placeholder.download_button(
+        label="📥 Download Portfolio Report",
+        data=csv,
+        file_name='optimized_portfolio.csv',
+        mime='text/csv',
+    )
 
-        st.error(f"Error in Engine: {e}")
-        st.divider() 
-st.caption("📂 **Institutional Disclosure**")
-st.caption("""
-**FX Normalization:** This engine currently calculates returns 
-using local currency price data. For institutional global 
-portfolios, returns should be normalized to a base currency 
-(e.g., USD) to accurately reflect cross-border risk.
-""")
-st.caption("Developed by Ishaan Sharma | Asset Management Tool")
-# Calculate Daily VaR (95% confidence)
-portfolio_return = (weights * returns.mean()).sum()
-portfolio_std = np.sqrt(np.dot(weights.T, np.dot(returns.cov(), weights)))
-var_95 = -(portfolio_return - 1.645 * portfolio_std)
+except Exception as e:
+    st.error(f"Please check your tickers or date range. Error: {e}")
 
-# Determine the risk color
-if var_95 < 0.02:
-    risk_status = "Low Risk"
-    color = "normal" # Green in Streamlit metrics
-elif var_95 < 0.04:
-    risk_status = "Moderate Risk"
-    color = "off" # Orange/Grey
-else:
-    risk_status = "High Risk"
-    color = "inverse" # Red
-
-st.subheader("🛡️ Risk Analysis")
-col1, col2 = st.columns(2)
-with col1:
-    st.metric(label="95% Daily Value-at-Risk", value=f"{var_95:.2%}", delta=risk_status, delta_color=color)
-with col2:
-    st.info("This metric represents the maximum expected loss over a 1-day period with 95% confidence.")
-    # Create a CSV of the results
-import pandas as pd
-
-# Assuming 'clean_weights' is your dictionary of optimized weights
-report_df = pd.DataFrame.from_dict(clean_weights, orient='index', columns=['Allocation'])
-csv = report_df.to_csv().encode('utf-8')
-
-st.sidebar.download_button(
-    label="📥 Download Portfolio Report",
-    data=csv,
-    file_name='optimized_portfolio.csv',
-    mime='text/csv',
-)
 
 
