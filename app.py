@@ -23,7 +23,6 @@ with st.sidebar:
     
     st.divider()
     st.subheader("🛡️ Compliance Constraints")
-    # Position Limits (Caps)
     max_cap = st.slider("Max Weight per Stock (%)", 10, 100, 35) / 100
     min_cap = st.slider("Min Weight per Stock (%)", 0, 10, 2) / 100
     
@@ -49,66 +48,70 @@ try:
     returns = data.pct_change().dropna()
     bench_returns = benchmark.pct_change().dropna()
 
-    # --- OPTIMIZATION WITH CONSTRAINTS ---
+    # --- OPTIMIZATION ---
     mu = expected_returns.mean_historical_return(data)
     S = risk_models.sample_cov(data)
-    
-    # Initialize Efficient Frontier
-    # weight_bounds=(min, max) handles both our constraints at once
     ef = EfficientFrontier(mu, S, weight_bounds=(min_cap, max_cap))
-    
     weights = ef.max_sharpe()
     clean_weights = ef.clean_weights()
     
-    # --- CALCULATIONS ---
+    # --- PERFORMANCE CALCULATIONS ---
     weights_arr = np.array(list(clean_weights.values()))
     portfolio_daily_returns = (returns * weights_arr).sum(axis=1)
     
     portfolio_cum = (1 + portfolio_daily_returns).cumprod()
     bench_cum = (1 + bench_returns).cumprod()
 
-    # Metrics
+    # Yearly Performance Table
+    p_daily_df = portfolio_daily_returns.to_frame(name='Returns')
+    yearly_perf = p_daily_df.groupby(p_daily_df.index.year).apply(lambda x: (1 + x).prod() - 1)
+    yearly_perf.columns = ['Portfolio Return']
+
+    # Max Drawdown
+    rolling_max = portfolio_cum.cummax()
+    drawdown = (portfolio_cum - rolling_max) / rolling_max
+    max_drawdown = drawdown.min()
+
+    # Global Metrics
     p_ret = (portfolio_cum.iloc[-1] - 1)
     p_vol = portfolio_daily_returns.std() * np.sqrt(252)
     p_sharpe = (portfolio_daily_returns.mean() * 252) / p_vol
     var_95 = -(portfolio_daily_returns.mean() - 1.645 * portfolio_daily_returns.std())
 
-    b_ret = (bench_cum.iloc[-1] - 1)
-    b_vol = bench_returns.std() * np.sqrt(252)
-    b_sharpe = (bench_returns.mean() * 252) / b_vol
-
-    # --- DISPLAY METRICS ---
-    st.subheader("📊 Performance vs S&P 500")
+    # --- DISPLAY ---
+    st.subheader("📊 Institutional Performance Metrics")
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total Return", f"{p_ret:.1%}", f"{p_ret - b_ret:.1%} vs S&P")
-    m2.metric("Annualized Vol", f"{p_vol:.1%}", f"{p_vol - b_vol:.1%}", delta_color="inverse")
-    m3.metric("Sharpe Ratio", f"{p_sharpe:.2f}", f"{p_sharpe - b_sharpe:.2f} vs S&P")
-    m4.metric("95% Daily VaR", f"{var_95:.2%}", "Risk Level", delta_color="normal" if var_95 < 0.02 else "inverse")
+    m1.metric("Total Return", f"{p_ret:.1%}", f"{p_ret - (bench_cum.iloc[-1]-1):.1%} vs S&P")
+    m2.metric("Annualized Vol", f"{p_vol:.1%}", delta="Lower is better", delta_color="normal" if p_vol < 0.20 else "inverse")
+    m3.metric("Sharpe Ratio", f"{p_sharpe:.2f}", "Risk-Adjusted")
+    m4.metric("Max Drawdown", f"{max_drawdown:.1%}", "Worst Peak-to-Trough", delta_color="inverse")
 
-    # --- VISUALS ---
     col_left, col_right = st.columns([1, 1.2])
 
     with col_left:
-        st.subheader("📈 Optimal Allocations")
+        st.subheader("📈 Optimal Weights")
         weights_df = pd.DataFrame.from_dict(clean_weights, orient='index', columns=['Weight'])
-        fig_pie = px.pie(weights_df[weights_df['Weight']>0], values='Weight', names=weights_df[weights_df['Weight']>0].index, 
-                         hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
+        fig_pie = px.pie(weights_df[weights_df['Weight']>0], values='Weight', names=weights_df[weights_df['Weight']>0].index, hole=0.4)
         st.plotly_chart(fig_pie, use_container_width=True)
+        
+        st.subheader("🗓️ Yearly Backtest")
+        st.table(yearly_perf.style.format("{:.2%}"))
 
     with col_right:
-        st.subheader("📊 Growth of $10k")
+        st.subheader("📊 Growth of $10,000")
         fig_bench = go.Figure()
         fig_bench.add_trace(go.Scatter(x=portfolio_cum.index, y=portfolio_cum*10000, name="Portfolio", line=dict(color='#FFD700', width=3)))
         fig_bench.add_trace(go.Scatter(x=bench_cum.index, y=bench_cum*10000, name="S&P 500", line=dict(color='white', dash='dash')))
-        fig_bench.update_layout(template="plotly_dark", height=400, margin=dict(l=0,r=0,b=0,t=0))
+        fig_bench.update_layout(template="plotly_dark", height=450)
         st.plotly_chart(fig_bench, use_container_width=True)
 
     # --- DOWNLOAD ---
     csv = weights_df.to_csv().encode('utf-8')
-    download_placeholder.download_button("📥 Export Portfolio Strategy", data=csv, file_name='portfolio_report.csv')
+    download_placeholder.download_button("📥 Export Portfolio Report", data=csv, file_name='portfolio_analysis.csv')
 
 except Exception as e:
-    st.error(f"Compliance Error: {e}. Try lowering the 'Min Weight' or increasing the 'Max Weight'.")
+    st.error(f"Analysis Error: {e}")
+
 
 
 
