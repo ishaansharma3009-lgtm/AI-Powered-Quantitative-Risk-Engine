@@ -89,4 +89,14 @@ if st.sidebar.button("Analyze & Optimize"):
             st.plotly_chart(fig, use_container_width=True)
 
     except Exception as e:
+
         st.error(f"Error in Engine: {e}")
+        st.divider() 
+st.caption("📂 **Institutional Disclosure**")
+st.caption("""
+**FX Normalization:** This engine currently calculates returns 
+using local currency price data. For institutional global 
+portfolios, returns should be normalized to a base currency 
+(e.g., USD) to accurately reflect cross-border risk.
+""")
+st.caption("Developed by Ishaan Sharma | Asset Management Tool")
