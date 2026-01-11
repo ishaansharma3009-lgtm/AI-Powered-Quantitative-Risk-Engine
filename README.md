@@ -42,5 +42,5 @@ $$S = \frac{R_p - R_f}{\sigma_p}$$
 
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/ishaan-sharma-128694374/)
 [![GitHub](https://img.shields.io/badge/GitHub-100000?style=for-the-badge&logo=github&logoColor=white)](https://github.com/ishaansharma3009-lgtm)
-
+**Disclaimer:** *This project is a technical demonstration of Asset Management principles. It uses unhedged local currency data. All investment strategies involve a risk of loss, and past performance is not indicative of future results.*
 ---
