@@ -100,3 +100,40 @@ portfolios, returns should be normalized to a base currency
 (e.g., USD) to accurately reflect cross-border risk.
 """)
 st.caption("Developed by Ishaan Sharma | Asset Management Tool")
+# Calculate Daily VaR (95% confidence)
+portfolio_return = (weights * returns.mean()).sum()
+portfolio_std = np.sqrt(np.dot(weights.T, np.dot(returns.cov(), weights)))
+var_95 = -(portfolio_return - 1.645 * portfolio_std)
+
+# Determine the risk color
+if var_95 < 0.02:
+    risk_status = "Low Risk"
+    color = "normal" # Green in Streamlit metrics
+elif var_95 < 0.04:
+    risk_status = "Moderate Risk"
+    color = "off" # Orange/Grey
+else:
+    risk_status = "High Risk"
+    color = "inverse" # Red
+
+st.subheader("🛡️ Risk Analysis")
+col1, col2 = st.columns(2)
+with col1:
+    st.metric(label="95% Daily Value-at-Risk", value=f"{var_95:.2%}", delta=risk_status, delta_color=color)
+with col2:
+    st.info("This metric represents the maximum expected loss over a 1-day period with 95% confidence.")
+    # Create a CSV of the results
+import pandas as pd
+
+# Assuming 'clean_weights' is your dictionary of optimized weights
+report_df = pd.DataFrame.from_dict(clean_weights, orient='index', columns=['Allocation'])
+csv = report_df.to_csv().encode('utf-8')
+
+st.sidebar.download_button(
+    label="📥 Download Portfolio Report",
+    data=csv,
+    file_name='optimized_portfolio.csv',
+    mime='text/csv',
+)
+
+
