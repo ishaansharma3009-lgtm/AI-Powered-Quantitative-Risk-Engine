@@ -5,6 +5,7 @@ import numpy as np
 from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt import risk_models, expected_returns
 import plotly.express as px
+import plotly.graph_objects as go
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Strategic Asset Lab", layout="wide")
@@ -16,99 +17,91 @@ st.markdown("---")
 # --- SIDEBAR SETTINGS ---
 with st.sidebar:
     st.header("Portfolio Settings")
-    
-    # Global Asset Management Tickers
     default_tickers = "AAPL, MSFT, JPM, MC.PA, ASML, NESN.SW, 2330.TW, 7203.T"
     assets = st.text_input("Enter Tickers (Comma separated)", default_tickers)
-    
-    start_date = st.date_input("Start Date", value=pd.to_datetime("2020-01-01"))
+    start_date = st.date_input("Start Date", value=pd.to_datetime("2021-01-01"))
     
     st.divider()
-    
-    # Placeholder for Download Button (Defined later in code)
     download_placeholder = st.empty()
-
     st.divider()
     st.caption("📂 **Institutional Disclosure**")
-    st.caption("""
-    **FX Normalization:** This engine currently calculates returns 
-    using local currency price data. For institutional global 
-    portfolios, returns should be normalized to a base currency 
-    (e.g., USD).
-    """)
-    st.caption("Developed by Ishaan Sharma | Asset Management Tool")
+    st.caption("FX Normalization: This engine uses local currency data. Developed by Ishaan Sharma.")
 
 # --- DATA FETCHING ---
 ticker_list = [t.strip() for t in assets.split(",")]
 
 @st.cache_data
-def get_data(tickers, start):
-    data = yf.download(tickers, start=start)['Close']
-    return data
+def get_global_data(tickers, start):
+    all_tickers = tickers + ["^GSPC"]
+    data = yf.download(all_tickers, start=start)['Close']
+    benchmark = data["^GSPC"].ffill()
+    assets_data = data.drop(columns=["^GSPC"]).ffill()
+    return assets_data, benchmark
 
 try:
-    data = get_data(ticker_list, start_date)
+    data, benchmark = get_global_data(ticker_list, start_date)
     returns = data.pct_change().dropna()
+    bench_returns = benchmark.pct_change().dropna()
 
-    # --- OPTIMIZATION LOGIC ---
+    # --- OPTIMIZATION ---
     mu = expected_returns.mean_historical_return(data)
     S = risk_models.sample_cov(data)
-
     ef = EfficientFrontier(mu, S)
-    # Adding a constraint: No single asset more than 35% (Institutional Standard)
     ef.add_constraint(lambda x: x <= 0.35)
+    weights = ef.max_sharpe()
+    clean_weights = ef.clean_weights()
     
-    # Optimize for Sharpe Ratio
-    raw_weights = ef.max_sharpe()
-    weights = ef.clean_weights()
+    # --- PERFORMANCE & RISK CALCULATIONS ---
+    weights_arr = np.array(list(clean_weights.values()))
+    portfolio_daily_returns = (returns * weights_arr).sum(axis=1)
     
-    # --- CALCULATIONS FOR RISK METER ---
-    weights_arr = np.array(list(weights.values()))
-    portfolio_return = (weights_arr * returns.mean()).sum()
-    portfolio_std = np.sqrt(np.dot(weights_arr.T, np.dot(returns.cov(), weights_arr)))
-    
-    # 95% Daily Value-at-Risk (VaR)
-    var_95 = -(portfolio_return - 1.645 * portfolio_std)
+    # Cumulative Growth
+    portfolio_cum = (1 + portfolio_daily_returns).cumprod()
+    bench_cum = (1 + bench_returns).cumprod()
 
-    # --- DISPLAY RESULTS ---
+    # Metrics: Portfolio
+    p_ret = (portfolio_cum.iloc[-1] - 1)
+    p_vol = portfolio_daily_returns.std() * np.sqrt(252)
+    p_sharpe = (portfolio_daily_returns.mean() * 252) / p_vol
+    var_95 = -(portfolio_daily_returns.mean() - 1.645 * portfolio_daily_returns.std())
+
+    # Metrics: Benchmark (S&P 500)
+    b_ret = (bench_cum.iloc[-1] - 1)
+    b_vol = bench_returns.std() * np.sqrt(252)
+    b_sharpe = (bench_returns.mean() * 252) / b_vol
+
+    # --- DISPLAY METRICS ---
+    st.subheader("📊 Institutional Performance Metrics")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total Return", f"{p_ret:.1%}", f"{p_ret - b_ret:.1%} vs S&P")
+    m2.metric("Annualized Vol", f"{p_vol:.1%}", f"{p_vol - b_vol:.1%}", delta_color="inverse")
+    m3.metric("Sharpe Ratio", f"{p_sharpe:.2f}", f"{p_sharpe - b_sharpe:.2f} vs S&P")
+    m4.metric("95% Daily VaR", f"{var_95:.2%}", "Risk Level", delta_color="normal" if var_95 < 0.02 else "inverse")
+
+    # --- VISUALS ---
     col_left, col_right = st.columns([1, 1])
 
     with col_left:
         st.subheader("📈 Optimal Allocations")
-        weights_df = pd.DataFrame.from_dict(weights, orient='index', columns=['Weight'])
-        weights_df = weights_df[weights_df['Weight'] > 0] # Filter out 0% weights
-        
-        fig = px.pie(weights_df, values='Weight', names=weights_df.index, hole=0.4,
-                     color_discrete_sequence=px.colors.sequential.RdBu)
-        st.plotly_chart(fig, use_container_width=True)
+        weights_df = pd.DataFrame.from_dict(clean_weights, orient='index', columns=['Weight'])
+        fig_pie = px.pie(weights_df[weights_df['Weight']>0], values='Weight', names=weights_df[weights_df['Weight']>0].index, hole=0.4)
+        st.plotly_chart(fig_pie, use_container_width=True)
 
     with col_right:
-        st.subheader("🛡️ Risk Analysis")
-        
-        if var_95 < 0.02:
-            status, color = "Low Risk", "normal"
-        elif var_95 < 0.04:
-            status, color = "Moderate Risk", "off"
-        else:
-            status, color = "High Risk", "inverse"
+        st.subheader("📊 Growth of $10,000")
+        fig_bench = go.Figure()
+        fig_bench.add_trace(go.Scatter(x=portfolio_cum.index, y=portfolio_cum*10000, name="Portfolio", line=dict(color='#FFD700', width=3)))
+        fig_bench.add_trace(go.Scatter(x=bench_cum.index, y=bench_cum*10000, name="S&P 500", line=dict(color='white', dash='dash')))
+        fig_bench.update_layout(template="plotly_dark", height=400)
+        st.plotly_chart(fig_bench, use_container_width=True)
 
-        st.metric(label="95% Daily Value-at-Risk (VaR)", value=f"{var_95:.2%}", delta=status, delta_color=color)
-        st.info("This metric indicates the maximum expected loss over a 1-day period with 95% confidence.")
-        
-        # Display Weights Table
-        st.dataframe(weights_df.style.format("{:.2%}"), use_container_width=True)
-
-    # --- ACTIVATE DOWNLOAD BUTTON ---
+    # --- DOWNLOAD ---
     csv = weights_df.to_csv().encode('utf-8')
-    download_placeholder.download_button(
-        label="📥 Download Portfolio Report",
-        data=csv,
-        file_name='optimized_portfolio.csv',
-        mime='text/csv',
-    )
+    download_placeholder.download_button("📥 Export Portfolio Strategy", data=csv, file_name='portfolio_report.csv')
 
 except Exception as e:
-    st.error(f"Please check your tickers or date range. Error: {e}")
+    st.error(f"Analysis Error: {e}")
+
 
 
 
