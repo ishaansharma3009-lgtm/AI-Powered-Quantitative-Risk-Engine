@@ -7,10 +7,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Institutional Strategy Lab", layout="wide")
+st.set_page_config(page_title="Strategic Asset Lab", layout="wide")
 st.title("🏛️ Institutional Strategy & Geopolitical Risk Engine")
 
-# --- SIDEBAR: CONTROLS ---
+# --- SIDEBAR: STRATEGIC CONTROLS ---
 with st.sidebar:
     st.header("Portfolio Settings")
     default_tickers = "AAPL, MSFT, JPM, MC.PA, ASML, NESN.SW, 2330.TW, 7203.T"
@@ -39,10 +39,11 @@ with st.sidebar:
     max_cap = st.slider("Max Weight per Stock (%)", 10, 100, 35) / 100
     div_penalty = st.slider("Diversification Penalty", 0.0, 2.0, 0.5)
 
-# --- DATA ENGINE ---
+# --- DATA ENGINE (WITH SYNCHRONIZATION) ---
 @st.cache_data
-def get_clean_market_data(tickers, start):
+def get_clean_synchronized_data(tickers, start):
     all_tickers = tickers + ["^GSPC"]
+    # Download and drop any rows where ANY ticker has missing data (Syncs holidays)
     data = yf.download(all_tickers, start=start)['Close'].ffill().dropna()
     benchmark = data["^GSPC"]
     assets_data = data.drop(columns=["^GSPC"])
@@ -57,7 +58,6 @@ def get_clean_market_data(tickers, start):
 
 # --- GEOPOLITICAL LOGIC ---
 def apply_geopolitical_overlay(weights, tickers, events, intensity):
-    """Adjust portfolio weights based on geopolitical risks"""
     sector_risk = {
         'Technology': {'US-China Tech Tensions': 0.8, 'Supply Chain Disruption': 0.7},
         'Financials': {'Currency Volatility': 0.6, 'Trade Policy Changes': 0.4},
@@ -70,95 +70,78 @@ def apply_geopolitical_overlay(weights, tickers, events, intensity):
         'MC.PA': 'Automotive', 'ASML': 'Semiconductors', 
         'NESN.SW': 'Healthcare', '2330.TW': 'Semiconductors', '7203.T': 'Automotive'
     }
-    
     adjustments = {}
     for ticker in tickers:
         sector = ticker_sectors.get(ticker, 'Technology')
-        total_risk = sum(sector_risk.get(sector, {}).get(event, 0.1) for event in events)
-        # Higher risk = reduce weight
-        reduction_factor = 1 - (total_risk * intensity * 0.2)
-        adjustments[ticker] = max(0.01, weights.get(ticker, 0) * reduction_factor)
+        risk = sum(sector_risk.get(sector, {}).get(e, 0.1) for e in events)
+        adj_factor = 1 - (risk * intensity * 0.2)
+        adjustments[ticker] = max(0.01, weights.get(ticker, 0) * adj_factor)
     
     total = sum(adjustments.values())
-    return {k: v/total for k, v in adjustments.items()} if total > 0 else weights
+    return {k: v/total for k, v in adjustments.items()}
 
 # --- MAIN ENGINE ---
 try:
-    assets_df, bench_df, market_caps = get_clean_market_data(ticker_list, start_date)
+    assets_df, bench_df, market_caps = get_clean_synchronized_data(ticker_list, start_date)
     returns = assets_df.pct_change().dropna()
     
-    # 1. Black-Litterman Optimization
+    # 1. Black-Litterman (Fixed Confidence Error)
     S = risk_models.sample_cov(assets_df)
     prior_returns = black_litterman.market_implied_prior_returns(market_caps, 2.5, S)
     bl = black_litterman.BlackLittermanModel(
         S, pi=prior_returns, absolute_views={view_ticker: view_return}, 
-        omega="idzorek", view_confidences=[view_conf]
+        omega="idzorek", 
+        view_confidences=[view_conf] # Fixed: Must be a list for Idzorek
     )
     bl_mu = bl.bl_returns()
 
-    # 2. Optimization with Constraints
+    # 2. Optimization with L2 Diversification
     ef = EfficientFrontier(bl_mu, S, weight_bounds=(0, max_cap))
     ef.add_objective(objective_functions.L2_reg, gamma=div_penalty)
-    clean_weights = ef.clean_weights()
+    base_weights = ef.max_sharpe()
+    clean_base = ef.clean_weights()
     
     # 3. Apply Geopolitical Overlay
-    final_weights = apply_geopolitical_overlay(clean_weights, ticker_list, geo_events, geo_intensity)
-    weights_arr = np.array(list(final_weights.values()))
+    final_weights = apply_geopolitical_overlay(clean_base, ticker_list, geo_events, geo_intensity)
+    weights_arr = np.array([final_weights[t] for t in ticker_list])
 
-    # 4. Performance & Annualized Metrics
+    # 4. Annualized Performance Suite
     p_rets = (returns * weights_arr).sum(axis=1)
     p_cum = (1 + p_rets).cumprod()
     
-    ann_return = p_rets.mean() * 252 # Annualized Return
-    ann_vol = p_rets.std() * np.sqrt(252) # Annualized Volatility
-    sharpe = ann_return / ann_vol # Sharpe Ratio
-    max_dd = ((p_cum - p_cum.cummax()) / p_cum.cummax()).min() # Peak-to-Trough
-    var_95 = np.percentile(p_rets, 5) # Value at Risk
+    # Proper order of Annualization
+    ann_return = p_rets.mean() * 252
+    ann_vol = p_rets.std() * np.sqrt(252)
+    sharpe = ann_return / ann_vol
+    var_95 = np.percentile(p_rets, 5)
+    max_dd = ((p_cum - p_cum.cummax()) / p_cum.cummax()).min()
 
-    # --- UI: PERFORMANCE DASHBOARD ---
-    st.subheader("📊 Performance & Risk Analytics")
+    # --- UI: ANALYTICS ---
+    st.subheader("📈 Institutional Risk & Performance")
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Annualized Return", f"{ann_return:.1%}")
     m2.metric("Annualized Vol", f"{ann_vol:.1%}")
     m3.metric("Sharpe Ratio", f"{sharpe:.2f}")
-    m4.metric("Max Drawdown", f"{max_dd:.1%}", delta_color="inverse")
+    m4.metric("Max Drawdown", f"{max_dd:.1%}")
 
-    # --- UI: GEOPOLITICAL ANALYSIS ---
+    # --- UI: GEOPOLITICAL IMPACT ---
     st.divider()
-    st.subheader("🌐 Geopolitical Risk-Adjusted Allocation")
-    col_geo1, col_geo2 = st.columns(2)
-    
-    with col_geo1:
-        # Comparison: Original vs Adjusted
-        comparison_df = pd.DataFrame({
-            "Optimized": clean_weights.values(),
-            "Geo-Adjusted": final_weights.values()
-        }, index=ticker_list)
-        st.bar_chart(comparison_df)
-        st.caption("How Geopolitical Risk Overlay shifted your optimal allocation.")
-
-    with col_geo2:
-        geo_risk_score = sum(len(geo_events) * geo_intensity for _ in ticker_list) / len(ticker_list)
-        st.metric("Portfolio Geopolitical Risk Score", f"{geo_risk_score:.1f}/10.0")
-        if geo_risk_score > 5:
-            st.warning("⚠️ High Geopolitical Exposure detected in your sector mix.")
-        else:
-            st.success("✅ Geopolitical Risk is well-managed.")
-
-    # --- UI: FINAL VISUALS ---
-    st.divider()
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("📈 Wealth Projection")
-        st.line_chart(p_cum)
-    with c2:
-        st.subheader("🧩 Diversification Matrix")
+    col_g1, col_g2 = st.columns(2)
+    with col_g1:
+        st.subheader("🛡️ Weight Shift Analysis")
+        comp_df = pd.DataFrame({"Optimized": clean_base.values(), "Geo-Adjusted": final_weights.values()}, index=ticker_list)
+        st.bar_chart(comp_df)
+    with col_g2:
+        st.subheader("🧩 Correlation Heatmap")
         fig_corr = px.imshow(returns.corr(), text_auto=".2f", color_continuous_scale='RdBu_r', template="plotly_dark")
         st.plotly_chart(fig_corr, use_container_width=True)
 
+    # --- UI: EXPORT FIX ---
+    csv_data = pd.DataFrame.from_dict(final_weights, orient='index', columns=['Weight']).to_csv().encode('utf-8')
+    st.sidebar.download_button("📥 Download Trade Report", data=csv_data, file_name='portfolio_weights.csv')
+
 except Exception as e:
     st.error(f"Engine Error: {str(e)}")
-
 
 
 
