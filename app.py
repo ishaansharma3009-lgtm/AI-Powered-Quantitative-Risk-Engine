@@ -21,18 +21,11 @@ with st.sidebar:
 # --- DATA ENGINE ---
 @st.cache_data
 def get_clean_data(tickers, start):
-    # Fetching assets + Benchmark (S&P 500)
+    # Fetching assets + S&P 500 Index for Comparison
     all_t = tickers + ["^GSPC"]
     raw = yf.download(all_t, start=start)['Close'].ffill()
-    
-    # Calculate daily returns and drop NaNs
     all_rets = raw.pct_change().dropna()
-    
-    # Portfolio components and Benchmark separation
-    portfolio_rets = all_rets[tickers]
-    benchmark_rets = all_rets["^GSPC"]
-    
-    return portfolio_rets, benchmark_rets
+    return all_rets[tickers], all_rets["^GSPC"]
 
 def get_cf_var(res, conf=0.95):
     s, k = skew(res), kurtosis(res)
@@ -45,13 +38,12 @@ def get_cf_var(res, conf=0.95):
 ticker_list = [t.strip() for t in assets.split(",") if t.strip()]
 
 try:
-    # Ensure at least two assets for correlation heatmap and optimization
     if len(ticker_list) < 2:
-        st.error("Please enter at least two tickers.")
+        st.warning("Please enter at least two tickers to build a portfolio.")
     else:
         rets, spy_rets = get_clean_data(ticker_list, start_date)
 
-        # 1. OPTIMIZATION
+        # 1. PORTFOLIO OPTIMIZATION
         mu = expected_returns.mean_historical_return(rets)
         S = risk_models.sample_cov(rets)
         ef = EfficientFrontier(mu, S, weight_bounds=(0, max_weight))
@@ -59,7 +51,7 @@ try:
         clean_w = ef.clean_weights()
         weights_arr = np.array(list(clean_w.values()))
 
-        # 2. PERFORMANCE CALCULATIONS
+        # 2. PERFORMANCE VS S&P 500
         p_rets = (rets * weights_arr).sum(axis=1)
         p_cum = (1 + p_rets).cumprod()
         spy_cum = (1 + spy_rets).cumprod()
@@ -68,41 +60,45 @@ try:
         sharpe = (p_rets.mean() * 252) / (p_rets.std() * np.sqrt(252))
         cf_var = get_cf_var(p_rets)
 
-        # --- UI: METRICS ---
-        st.subheader("📊 Performance vs. S&P 500")
+        # --- UI: PERFORMANCE DASHBOARD ---
+        st.subheader("📊 Portfolio vs. S&P 500 Performance")
         m1, m2, m3 = st.columns(3)
-        m1.metric("Portfolio Sharpe", f"{sharpe:.2f}")
-        m2.metric("Cornish-Fisher VaR", f"{cf_var:.2%}")
-        m3.metric("Max Drawdown", f"{((p_cum - p_cum.cummax())/p_cum.cummax()).min():.1%}")
+        m1.metric("Strategy Sharpe Ratio", f"{sharpe:.2f}")
+        m2.metric("Cornish-Fisher VaR (Risk)", f"{cf_var:.2%}")
+        m3.metric("Max Portfolio Drawdown", f"{((p_cum - p_cum.cummax())/p_cum.cummax()).min():.1%}")
 
-        # --- UI: COMPARISON CHART ---
+        # --- CHART: CUMULATIVE RETURNS ---
         fig_comp = go.Figure()
-        fig_comp.add_trace(go.Scatter(x=p_cum.index, y=p_cum, name="Optimized Portfolio"))
-        fig_comp.add_trace(go.Scatter(x=spy_cum.index, y=spy_cum, name="S&P 500 (Benchmark)"))
-        fig_comp.update_layout(template="plotly_dark", title="Cumulative Return: Portfolio vs. S&P 500",
-                              xaxis_title="Date", yaxis_title="Growth of $1")
+        fig_comp.add_trace(go.Scatter(x=p_cum.index, y=p_cum, name="Optimized Strategy", line=dict(color='#00CC96', width=3)))
+        fig_comp.add_trace(go.Scatter(x=spy_cum.index, y=spy_cum, name="S&P 500 Benchmark", line=dict(dash='dash', color='#636EFA')))
+        fig_comp.update_layout(template="plotly_dark", title="Wealth Growth: $1 Investment", xaxis_title="Date", yaxis_title="Cumulative Return")
         st.plotly_chart(fig_comp, use_container_width=True)
 
-        # --- UI: CORRELATION HEATMAP ---
+        # --- CHART: CORRELATION HEATMAP ---
         st.divider()
         st.subheader("🧩 Asset Correlation Matrix")
         corr_matrix = rets.corr()
-        fig_corr = px.imshow(corr_matrix, text_auto=".2f", aspect="auto", 
-                             color_continuous_scale='RdBu_r', template="plotly_dark")
+        fig_corr = px.imshow(corr_matrix, text_auto=".2f", aspect="auto", color_continuous_scale='RdBu_r', template="plotly_dark")
         st.plotly_chart(fig_corr, use_container_width=True)
-
-        # --- UI: COVID STRESS TEST ---
+        
+        # --- COVID STRESS TEST ---
         st.divider()
-        st.subheader("🔄 COVID-19 Crisis Impact (Feb-Mar 2020)")
+        st.subheader("🔄 COVID-19 Crash Recovery (Feb-Mar 2020)")
         covid_mask = (p_rets.index >= '2020-02-19') & (p_rets.index <= '2020-03-23')
         if covid_mask.any():
             p_crash = (1 + p_rets[covid_mask]).prod() - 1
             spy_crash = (1 + spy_rets[covid_mask]).prod() - 1
             c1, c2 = st.columns(2)
-            c1.write(f"**Portfolio Return:** {p_crash:.2%}")
-            c2.write(f"**S&P 500 Return:** {spy_crash:.2%}")
-        else:
-            st.info("Start Date is after the 2020 COVID crash period.")
+            c1.info(f"**Portfolio Return:** {p_crash:.2%}")
+            c2.info(f"**S&P 500 Return:** {spy_crash:.2%}")
+
+        # --- EXPORT ---
+        st.sidebar.divider()
+        st.sidebar.download_button("📂 Export Raw Data (CSV)", data=rets.to_csv().encode('utf-8'), file_name="strategy_data.csv")
+
+except Exception as e:
+    # This block fixes the SyntaxError shown in your terminal!
+    st.error(f"Strategy Engine Error: {e}")
 
 
 
