@@ -108,7 +108,7 @@ try:
     download_placeholder.download_button("📥 Export Portfolio Report", data=csv, file_name='portfolio_analysis.csv')
 
 except Exception as e:
-    st.error(f"Analysis Error: {e}") this si the code for it now tell me
+    st.error(f"Analysis Error: {e}") 
 
 
 
