@@ -257,130 +257,30 @@ try:
     )
     st.plotly_chart(fig_perf, use_container_width=True)
 
-    # --- CORRELATION HEATMAP SECTION ---
-    st.divider()
-    st.subheader("🔥 Asset Correlation Matrix")
-    
-    # Calculate correlation matrix
-    corr_matrix = returns.corr()
-    
-    # Create interactive heatmap
-    fig_corr = px.imshow(
-        corr_matrix,
-        text_auto='.2f',  # Show correlation values with 2 decimals
-        aspect="auto",     # Auto-adjust aspect ratio
-        color_continuous_scale='RdBu_r',  # Red-Blue reversed scale
-        title="Asset Correlation Heatmap",
-        labels=dict(color="Correlation"),
-        zmin=-1,  # Fix scale from -1 to 1
-        zmax=1
-    )
-    
-    # Add custom hover text
-    fig_corr.update_traces(
-        hovertemplate="<b>%{y} vs %{x}</b><br>Correlation: %{z:.3f}<extra></extra>"
-    )
-    
-    # Update layout
-    fig_corr.update_layout(
-        height=500,
-        xaxis_title="Assets",
-        yaxis_title="Assets",
-        coloraxis_colorbar=dict(
-            title="Correlation",
-            titleside="right",
-            tickvals=[-1, -0.5, 0, 0.5, 1],
-            ticktext=["-1.0 (Perfect Negative)", "-0.5", "0.0 (Uncorrelated)", "0.5", "1.0 (Perfect Positive)"]
-        )
-    )
-    
-    # Display heatmap
-    st.plotly_chart(fig_corr, use_container_width=True)
-    
-    # Correlation insights
-    col_insight1, col_insight2, col_insight3 = st.columns(3)
-    
-    with col_insight1:
-        # Find strongest positive correlation
-        mask = np.triu(np.ones_like(corr_matrix, dtype=bool), k=1)
-        corr_values = corr_matrix.where(mask).stack()
-        if not corr_values.empty:
-            max_corr_pair = corr_values.idxmax()
-            max_corr_value = corr_values.max()
-            st.metric("Strongest Correlation", 
-                     f"{max_corr_value:.2f}",
-                     f"{max_corr_pair[0]} & {max_corr_pair[1]}")
-    
-    with col_insight2:
-        # Find strongest negative correlation (best for diversification)
-        if not corr_values.empty:
-            min_corr_pair = corr_values.idxmin()
-            min_corr_value = corr_values.min()
-            st.metric("Best Diversification", 
-                     f"{min_corr_value:.2f}",
-                     f"{min_corr_pair[0]} & {min_corr_pair[1]}")
-    
-    with col_insight3:
-        # Average correlation
-        avg_corr = corr_matrix.values[np.triu_indices_from(corr_matrix.values, k=1)].mean()
-        st.metric("Average Portfolio Correlation", f"{avg_corr:.2f}")
-    
-    # Interpretation guide
-    with st.expander("📖 How to Read Correlation Matrix"):
-        st.markdown("""
-        **Correlation measures how assets move together:**
-        
-        | Value Range | Interpretation | Diversification Benefit |
-        |-------------|----------------|------------------------|
-        | **1.0** | Perfect positive correlation | ❌ None (move exactly together) |
-        | **0.7 to 0.9** | Strong positive correlation | ⚠️ Limited |
-        | **0.3 to 0.7** | Moderate correlation | ✅ Some |
-        | **0.0 to 0.3** | Weak correlation | ✅ Good |
-        | **Negative** | Inverse relationship | ✅ Excellent |
-        
-        **Ideal portfolio**: Contains assets with **low or negative correlations** to reduce overall risk.
-        """)
-
     # --- ALLOCATION & ANALYSIS ---
     st.divider()
-    st.subheader("📦 Portfolio Construction")
-    
     col_left, col_right = st.columns(2)
     
     with col_left:
-        st.markdown("#### 🍕 Portfolio Allocation")
+        st.subheader("🍕 Portfolio Allocation")
         w_df = pd.DataFrame.from_dict(final_weights, orient='index', columns=['Weight'])
         w_df = w_df[w_df['Weight'] > 0.001]  # Only show significant weights
         
         if not w_df.empty:
-            # Sort by weight descending
-            w_df = w_df.sort_values('Weight', ascending=False)
-            
             fig_pie = px.pie(
                 w_df, 
                 values='Weight', 
                 names=w_df.index, 
                 hole=0.4,
-                color_discrete_sequence=px.colors.qualitative.Set3,
-                category_orders={"index": w_df.index.tolist()}
+                color_discrete_sequence=px.colors.qualitative.Set3
             )
-            fig_pie.update_layout(
-                showlegend=True, 
-                height=400,
-                legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
-            )
+            fig_pie.update_layout(showlegend=True, height=400)
             st.plotly_chart(fig_pie, use_container_width=True)
-            
-            # Show weight table
-            st.dataframe(
-                w_df.style.format({'Weight': '{:.1%}'}),
-                use_container_width=True
-            )
         else:
             st.info("No significant allocations found.")
     
     with col_right:
-        st.markdown("#### 🛡️ Geopolitical Impact")
+        st.subheader("🛡️ Geopolitical Impact")
         
         if geo_events and geo_intensity > 0.5:
             # Calculate changes
@@ -399,17 +299,12 @@ try:
                 fig_changes = px.bar(
                     changes_df,
                     orientation='h',
-                    title="Geopolitical Weight Adjustments",
+                    title="Weight Adjustments Due to Geopolitical Risk",
                     color=changes_df['Change (%)'] > 0,
                     color_discrete_map={True: '#FF4B4B', False: '#00CC96'},
-                    labels={'index': 'Ticker', 'Change (%)': 'Change (percentage points)'}
+                    labels={'index': 'Ticker', 'Change (%)': 'Change (pp)'}
                 )
-                fig_changes.update_layout(
-                    showlegend=False, 
-                    height=400,
-                    xaxis_title="Change (percentage points)",
-                    yaxis_title="Ticker"
-                )
+                fig_changes.update_layout(showlegend=False, height=400)
                 st.plotly_chart(fig_changes, use_container_width=True)
                 
                 # Summary stats
@@ -427,18 +322,17 @@ try:
     st.divider()
     st.subheader("📥 Export Results")
     
-    col_exp1, col_exp2, col_exp3 = st.columns(3)
+    col_exp1, col_exp2 = st.columns(2)
     
     with col_exp1:
         # Export weights
         export_df = pd.DataFrame.from_dict(final_weights, orient='index', columns=['Weight'])
         csv = export_df.to_csv().encode('utf-8')
         st.download_button(
-            label="📊 Portfolio Weights",
+            label="Download Portfolio Weights (CSV)",
             data=csv,
             file_name='portfolio_weights.csv',
-            mime='text/csv',
-            use_container_width=True
+            mime='text/csv'
         )
     
     with col_exp2:
@@ -453,23 +347,10 @@ try:
         
         csv_perf = perf_df.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="📈 Performance Data",
+            label="Download Performance Data (CSV)",
             data=csv_perf,
             file_name='performance_data.csv',
-            mime='text/csv',
-            use_container_width=True
-        )
-    
-    with col_exp3:
-        # Export correlation matrix
-        corr_export = corr_matrix.reset_index()
-        corr_csv = corr_export.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="🔥 Correlation Matrix",
-            data=corr_csv,
-            file_name='correlation_matrix.csv',
-            mime='text/csv',
-            use_container_width=True
+            mime='text/csv'
         )
 
 except Exception as e:
@@ -495,6 +376,8 @@ except Exception as e:
         2. International tickers include exchange (e.g., MC.PA for Paris)
         3. Separate tickers with commas only
         """)
+        
+
 
 
 
