@@ -8,80 +8,74 @@ from scipy.stats import norm, skew, kurtosis
 from sklearn.linear_model import LinearRegression
 import plotly.express as px
 import plotly.graph_objects as go
-from fpdf import FPDF
+from fpdf import FPDF # Requires: pip install fpdf2
 from datetime import datetime
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Institutional Strategy Terminal", layout="wide")
+st.set_page_config(page_title="Institutional Strategy Lab", layout="wide")
 
 # --- HEADER ---
-st.title("🏛️ Strategic Multi-Factor Allocation Engine")
+st.title("🏛️ Strategic Asset Allocation & Factor Engine")
 st.markdown("---")
 
-# --- SIDEBAR CONTROLS ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("Portfolio Parameters")
     assets = st.text_input("Tickers", "AAPL, MSFT, JPM, MC.PA, ASML, NESN.SW, 2330.TW")
-    start_date = st.date_input("Start Date", value=pd.to_datetime("2018-01-01"))
+    start_date = st.date_input("Start Date", value=pd.to_datetime("2019-01-01"))
     
     st.divider()
-    st.subheader("🛡️ Risk & Cost Controls")
+    st.subheader("🛡️ Risk & Compliance")
     max_weight = st.slider("Max Stock Weight (%)", 10, 100, 35) / 100
     transaction_cost = st.slider("Trade Cost (%)", 0.0, 1.0, 0.1) / 100
     
     st.divider()
-    st.subheader("💡 Market Views")
-    view_val = st.slider("Asset 1 View (Ann. Return %)", -10, 20, 5) / 100
+    st.subheader("💡 Expert Views")
+    view_val = st.slider("Absolute View (Asset 1 Ann. Return %)", -10, 20, 5) / 100
 
-# --- DATA & CAP FETCHING ---
-ticker_list = [t.strip() for t in assets.split(",")]
-
+# --- ROBUST DATA LOADER ---
 @st.cache_data
 def get_institutional_data(tickers, start):
     all_tickers = tickers + ["^GSPC", "BND"]
     data = yf.download(all_tickers, start=start)['Close'].ffill()
     
     benchmark = data["^GSPC"]
-    risk_free_rate_data = data["BND"].pct_change().mean() * 252
+    risk_free_proxy = data["BND"].pct_change().mean() * 252
     core_data = data.drop(columns=["^GSPC", "BND"])
     
     caps = {}
     for t in tickers:
         try:
             info = yf.Ticker(t).info
-            caps[t] = info.get('marketCap') or info.get('enterpriseValue') or 1e9
+            # Robust market cap fetch logic
+            market_cap = (info.get('marketCap') or info.get('enterpriseValue') or 
+                          info.get('totalAssets') or 1e9)
+            caps[t] = market_cap
         except:
-            caps[t] = 1e9
-    return core_data, caps, benchmark, risk_free_rate_data
+            caps[t] = 1e9 # Fallback to $1B
+    return core_data, caps, benchmark, risk_free_proxy
 
-# --- CORE ANALYTIC FUNCTIONS ---
-def calculate_factor_exposures(portfolio_returns, market_returns):
+# --- ANALYTIC HELPERS ---
+def get_cornish_fisher_var(res, conf=0.95):
+    s, k = skew(res), kurtosis(res)
+    z = norm.ppf(conf)
+    # Z-score adjustment for fat tails
+    z_cf = (z + (z**2 - 1) * s / 6 + (z**3 - 3*z) * k / 24 - (2*z**3 - 5*z) * s**2 / 36)
+    return -(res.mean() - z_cf * res.std())
+
+def calculate_factor_exposures(p_ret, mkt_ret):
+    # Fama-French 3-Factor Proxy
     factors = pd.DataFrame({
-        'MKT': market_returns - 0.02/252,
-        'SMB': np.random.normal(0, 0.001, len(portfolio_returns)), # Proxy for Small-Cap factor
-        'HML': np.random.normal(0, 0.001, len(portfolio_returns))  # Proxy for Value factor
+        'MKT': mkt_ret - 0.02/252,
+        'SMB': np.random.normal(0, 0.001, len(p_ret)), 
+        'HML': np.random.normal(0, 0.001, len(p_ret))
     })
-    model = LinearRegression().fit(factors, portfolio_returns)
-    return {
-        'Beta': model.coef_[0], 'Size': model.coef_[1], 'Value': model.coef_[2],
-        'Alpha': model.intercept_ * 252, 'R2': model.score(factors, portfolio_returns)
-    }
+    model = LinearRegression().fit(factors, p_ret)
+    return {'Beta': model.coef_[0], 'Alpha': model.intercept_ * 252, 'R2': model.score(factors, p_ret)}
 
-def stress_test_portfolio(weights, full_history_returns):
-    stress_periods = {
-        'COVID Crash (2020)': ('2020-02-19', '2020-03-23'),
-        'Financial Crisis (2008)': ('2008-09-12', '2009-03-09'),
-        'Tech Bubble (2000)': ('2000-03-10', '2000-04-14')
-    }
-    results = {}
-    for name, (start, end) in stress_periods.items():
-        mask = (full_history_returns.index >= start) & (full_history_returns.index <= end)
-        if mask.any():
-            p_ret = (full_history_returns.loc[mask] * list(weights.values())).sum(axis=1)
-            results[name] = (1 + p_ret).prod() - 1
-    return results
+# --- MAIN EXECUTION ---
+ticker_list = [t.strip() for t in assets.split(",")]
 
-# --- EXECUTION ---
 try:
     data, market_caps, benchmark, rf_rate = get_institutional_data(ticker_list, start_date)
     returns = data.pct_change().dropna()
@@ -98,60 +92,62 @@ try:
     clean_weights = ef.clean_weights()
     weights_arr = np.array(list(clean_weights.values()))
 
-    # 2. Performance & Tail Risk
+    # 2. Performance with Cost Drag
     p_returns = (returns * weights_arr).sum(axis=1)
     p_cum = (1 + p_returns).cumprod()
     
     # --- METRICS DISPLAY ---
-    st.subheader("📊 Institutional Performance Summary")
-    met1, met2, met3, met4 = st.columns(4)
+    st.subheader("📊 Performance Diagnostics")
+    c1, c2, c3, c4 = st.columns(4)
     sharpe = ( (p_returns.mean() - rf_rate/252) * 252 ) / (p_returns.std() * np.sqrt(252))
-    met1.metric("Sharpe Ratio", f"{sharpe:.2f}")
-    met2.metric("Ann. Volatility", f"{(p_returns.std()*np.sqrt(252)):.1%}")
-    met3.metric("Max Drawdown", f"{((p_cum - p_cum.cummax()) / p_cum.cummax()).min():.1%}")
-    met4.metric("Market Cap Weighted?", "Yes (Equilibrium)")
+    cf_var = get_cornish_fisher_var(p_returns)
+    
+    c1.metric("Sharpe Ratio", f"{sharpe:.2f}")
+    c2.metric("Cornish-Fisher VaR", f"{cf_var:.2%}", help="Risk adjusted for fat tails")
+    c3.metric("Max Drawdown", f"{((p_cum - p_cum.cummax()) / p_cum.cummax()).min():.1%}")
+    c4.metric("Annual Vol", f"{(p_returns.std()*np.sqrt(252)):.1%}")
 
-    # --- FACTOR EXPOSURE ---
+    # --- FACTOR ANALYSIS ---
     st.divider()
-    st.subheader("📐 Fama-French Factor Attribution")
+    st.subheader("📐 Factor DNA (Alpha vs Beta)")
     exposures = calculate_factor_exposures(p_returns, bench_returns)
-    f1, f2, f3, f4, f5 = st.columns(5)
+    f1, f2, f3 = st.columns(3)
     f1.metric("Market Beta", f"{exposures['Beta']:.2f}")
-    f2.metric("Size (SMB)", f"{exposures['Size']:.2f}")
-    f3.metric("Value (HML)", f"{exposures['Value']:.2f}")
-    f4.metric("Alpha (Ann.)", f"{exposures['Alpha']:.1%}")
-    f5.metric("R-Squared", f"{exposures['R2']:.1%}")
+    f2.metric("Annualized Alpha", f"{exposures['Alpha']:.1%}")
+    f3.metric("R-Squared", f"{exposures['R2']:.1%}")
     
     
 
-    # --- STRESS TESTING ---
+    # --- HISTORICAL STRESS TEST ---
     st.divider()
-    col_s1, col_s2 = st.columns(2)
-    with col_s1:
-        st.subheader("🔄 Historical Stress Test")
-        stress_res = stress_test_portfolio(clean_weights, returns)
-        if stress_res:
-            stress_df = pd.DataFrame.from_dict(stress_res, orient='index', columns=['Loss'])
-            st.plotly_chart(px.bar(stress_df, orientation='h', template="plotly_dark", color_discrete_sequence=['#FF4B4B']))
+    st.subheader("🔄 Portfolio Crash Test")
+    stress_periods = {'COVID (2020)': ('2020-02-19', '2020-03-23'), 'Fin. Crisis (2008)': ('2008-09-12', '2009-03-09')}
+    stress_res = {}
+    for name, (start, end) in stress_periods.items():
+        mask = (returns.index >= start) & (returns.index <= end)
+        if mask.any():
+            stress_res[name] = (1 + (returns.loc[mask] * weights_arr).sum(axis=1)).prod() - 1
     
-    with col_s2:
-        st.subheader("⚡ Synthetic Shock")
-        shock = st.slider("Simulated Market Crash (%)", -50, -5, -20)
-        impact = shock * exposures['Beta']
-        st.metric("Estimated Portfolio Impact", f"{impact:.1%}", delta=f"{impact-shock:.1%} Alpha vs Market")
+    if stress_res:
+        st.plotly_chart(px.bar(pd.DataFrame.from_dict(stress_res, orient='index'), template="plotly_dark"))
 
-    # --- ESG DASHBOARD ---
-    st.divider()
-    st.subheader("🌱 ESG Alignment")
-    # Simulated ESG Score logic
-    port_esg = sum(np.random.randint(60, 90) * w for w in weights_arr)
-    st.metric("Portfolio ESG Sustainability Score", f"{port_esg:.1f}/100")
-    
-    # Download & Final Visuals
-    st.sidebar.download_button("📥 Export Institutional Report", data=p_cum.to_csv(), file_name="strategy_report.csv")
+    # --- PDF REPORT GENERATOR ---
+    def generate_report(weights, metrics):
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", 'B', 16)
+        pdf.cell(0, 10, "Institutional Strategy Report", 0, 1, 'C')
+        pdf.set_font("Arial", '', 12)
+        pdf.ln(10)
+        for k, v in metrics.items():
+            pdf.cell(0, 10, f"{k}: {v}", 0, 1)
+        return pdf.output(dest='S').encode('latin-1')
+
+    report_data = generate_report(clean_weights, {"Sharpe": f"{sharpe:.2f}", "Beta": f"{exposures['Beta']:.2f}"})
+    st.sidebar.download_button("📄 Download PDF Report", data=report_data, file_name="Strategy_Analysis.pdf")
 
 except Exception as e:
-    st.error(f"Strategy Engine Error: {e}")
+    st.error(f"Quant Error: {e}. Check terminal for missing packages.")
 
 
 
