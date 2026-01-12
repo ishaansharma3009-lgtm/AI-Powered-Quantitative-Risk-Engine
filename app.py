@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Strategic Asset Lab", layout="wide")
-st.title("🏛️ Institutional Strategy & Geopolitical Risk Engine")
+st.title("🏛️ Strategic Asset Allocation & Risk Engine")
 
 # --- SIDEBAR: STRATEGIC CONTROLS ---
 with st.sidebar:
@@ -39,11 +39,10 @@ with st.sidebar:
     max_cap = st.slider("Max Weight per Stock (%)", 10, 100, 35) / 100
     div_penalty = st.slider("Diversification Penalty", 0.0, 2.0, 0.5)
 
-# --- DATA ENGINE (WITH SYNCHRONIZATION) ---
+# --- DATA ENGINE ---
 @st.cache_data
 def get_clean_synchronized_data(tickers, start):
     all_tickers = tickers + ["^GSPC"]
-    # Download and drop any rows where ANY ticker has missing data (Syncs holidays)
     data = yf.download(all_tickers, start=start)['Close'].ffill().dropna()
     benchmark = data["^GSPC"]
     assets_data = data.drop(columns=["^GSPC"])
@@ -56,7 +55,6 @@ def get_clean_synchronized_data(tickers, start):
             mcaps[t] = 1e11
     return assets_data, benchmark, mcaps
 
-# --- GEOPOLITICAL LOGIC ---
 def apply_geopolitical_overlay(weights, tickers, events, intensity):
     sector_risk = {
         'Technology': {'US-China Tech Tensions': 0.8, 'Supply Chain Disruption': 0.7},
@@ -76,75 +74,77 @@ def apply_geopolitical_overlay(weights, tickers, events, intensity):
         risk = sum(sector_risk.get(sector, {}).get(e, 0.1) for e in events)
         adj_factor = 1 - (risk * intensity * 0.2)
         adjustments[ticker] = max(0.01, weights.get(ticker, 0) * adj_factor)
-    
     total = sum(adjustments.values())
     return {k: v/total for k, v in adjustments.items()}
 
-# --- MAIN ENGINE ---
+# --- MAIN EXECUTION ---
 try:
     assets_df, bench_df, market_caps = get_clean_synchronized_data(ticker_list, start_date)
     returns = assets_df.pct_change().dropna()
+    bench_returns = bench_df.pct_change().dropna()
     
-    # 1. Black-Litterman (Fixed Confidence Error)
+    # 1. Black-Litterman Setup
     S = risk_models.sample_cov(assets_df)
     prior_returns = black_litterman.market_implied_prior_returns(market_caps, 2.5, S)
     bl = black_litterman.BlackLittermanModel(
         S, pi=prior_returns, absolute_views={view_ticker: view_return}, 
-        omega="idzorek", 
-        view_confidences=[view_conf] # Fixed: Must be a list for Idzorek
+        omega="idzorek", view_confidences=[view_conf]
     )
     bl_mu = bl.bl_returns()
 
-    # 2. Optimization with L2 Diversification
+    # 2. Optimization
     ef = EfficientFrontier(bl_mu, S, weight_bounds=(0, max_cap))
     ef.add_objective(objective_functions.L2_reg, gamma=div_penalty)
-    base_weights = ef.max_sharpe()
     clean_base = ef.clean_weights()
     
-    # 3. Apply Geopolitical Overlay
+    # 3. Geopolitical Overlay
     final_weights = apply_geopolitical_overlay(clean_base, ticker_list, geo_events, geo_intensity)
     weights_arr = np.array([final_weights[t] for t in ticker_list])
 
-    # 4. Annualized Performance Suite
+    # 4. Analytics
     p_rets = (returns * weights_arr).sum(axis=1)
     p_cum = (1 + p_rets).cumprod()
+    b_cum = (1 + bench_returns).cumprod()
     
-    # Proper order of Annualization
     ann_return = p_rets.mean() * 252
     ann_vol = p_rets.std() * np.sqrt(252)
     sharpe = ann_return / ann_vol
-    var_95 = np.percentile(p_rets, 5)
     max_dd = ((p_cum - p_cum.cummax()) / p_cum.cummax()).min()
 
-    # --- UI: ANALYTICS ---
-    st.subheader("📈 Institutional Risk & Performance")
+    # --- UI: DASHBOARD ---
+    st.subheader("📈 Strategy Analytics")
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Annualized Return", f"{ann_return:.1%}")
-    m2.metric("Annualized Vol", f"{ann_vol:.1%}")
-    m3.metric("Sharpe Ratio", f"{sharpe:.2f}")
-    m4.metric("Max Drawdown", f"{max_dd:.1%}")
+    m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
+    m3.metric("Max Drawdown", f"{max_dd:.1%}")
+    m4.metric("Annualized Vol", f"{ann_vol:.1%}")
 
-    # --- UI: GEOPOLITICAL IMPACT ---
+    # --- PERFORMANCE VS S&P 500 ---
     st.divider()
-    col_g1, col_g2 = st.columns(2)
-    with col_g1:
-        st.subheader("🛡️ Weight Shift Analysis")
-        comp_df = pd.DataFrame({"Optimized": clean_base.values(), "Geo-Adjusted": final_weights.values()}, index=ticker_list)
-        st.bar_chart(comp_df)
-    with col_g2:
-        st.subheader("🧩 Correlation Heatmap")
+    st.subheader("🚀 Strategy vs. S&P 500 Benchmark")
+    fig_perf = go.Figure()
+    fig_perf.add_trace(go.Scatter(x=p_cum.index, y=p_cum, name="BL Optimized Strategy", line=dict(color='#00CC96', width=3)))
+    fig_perf.add_trace(go.Scatter(x=b_cum.index, y=b_cum, name="S&P 500 (Growth of $1)", line=dict(color='white', dash='dash')))
+    fig_perf.update_layout(template="plotly_dark", height=450, legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01))
+    st.plotly_chart(fig_perf, use_container_width=True)
+
+    # --- ALLOCATION PIE CHART ---
+    st.divider()
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("🍕 Portfolio Allocation")
+        w_df = pd.DataFrame.from_dict(final_weights, orient='index', columns=['Weight'])
+        fig_pie = px.pie(w_df, values='Weight', names=w_df.index, hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
+        fig_pie.update_layout(template="plotly_dark")
+        st.plotly_chart(fig_pie, use_container_width=True)
+    
+    with col2:
+        st.subheader("🧩 Asset Correlation")
         fig_corr = px.imshow(returns.corr(), text_auto=".2f", color_continuous_scale='RdBu_r', template="plotly_dark")
         st.plotly_chart(fig_corr, use_container_width=True)
 
-    # --- UI: EXPORT FIX ---
-    csv_data = pd.DataFrame.from_dict(final_weights, orient='index', columns=['Weight']).to_csv().encode('utf-8')
-    st.sidebar.download_button("📥 Download Trade Report", data=csv_data, file_name='portfolio_weights.csv')
-
 except Exception as e:
-    st.error(f"Engine Error: {str(e)}")
-
-
-
+    st.error(f"Critical Engine Error: {str(e)}")
 
 
 
