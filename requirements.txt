@@ -1,6 +1,9 @@
-streamlit
 yfinance
 pandas
 numpy
 PyPortfolioOpt
+scikit-learn
+fpdf2
+scipy
+pandas-datareader
 plotly
