@@ -2,103 +2,114 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from pypfopt import risk_models, expected_returns, EfficientFrontier
-from scipy.stats import norm, skew, kurtosis
+from pypfopt.efficient_frontier import EfficientFrontier
+from pypfopt import risk_models, expected_returns
 import plotly.express as px
 import plotly.graph_objects as go
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Portfolio Strategy Lab", layout="wide")
-st.title("🏛️ Portfolio Strategy & Risk Engine")
+st.set_page_config(page_title="Strategic Asset Lab", layout="wide")
 
-# --- SIDEBAR ---
+# --- HEADER ---
+st.title("🏛️ Strategic Asset Allocation & Risk Engine")
+st.markdown("---")
+
+# --- SIDEBAR SETTINGS ---
 with st.sidebar:
-    st.header("Parameters")
-    assets = st.text_input("Tickers (comma separated)", "AAPL, MSFT, JPM, ASML, NESN.SW")
-    start_date = st.date_input("Start Date", value=pd.to_datetime("2020-01-01"))
-    max_weight = st.slider("Max Stock Weight (%)", 10, 100, 35) / 100
+    st.header("Portfolio Settings")
+    default_tickers = "AAPL, MSFT, JPM, MC.PA, ASML, NESN.SW, 2330.TW, 7203.T"
+    assets = st.text_input("Enter Tickers (Comma separated)", default_tickers)
+    start_date = st.date_input("Start Date", value=pd.to_datetime("2021-01-01"))
+    
+    st.divider()
+    st.subheader("🛡️ Compliance Constraints")
+    max_cap = st.slider("Max Weight per Stock (%)", 10, 100, 35) / 100
+    min_cap = st.slider("Min Weight per Stock (%)", 0, 10, 2) / 100
+    
+    st.divider()
+    download_placeholder = st.empty()
+    st.divider()
+    st.caption("Developed by Ishaan Sharma | Asset Management Tool")
 
-# --- DATA ENGINE ---
+# --- DATA FETCHING ---
+ticker_list = [t.strip() for t in assets.split(",")]
+
 @st.cache_data
-def get_clean_data(tickers, start):
-    # Fetching assets + S&P 500 Index for Comparison
-    all_t = tickers + ["^GSPC"]
-    raw = yf.download(all_t, start=start)['Close'].ffill()
-    all_rets = raw.pct_change().dropna()
-    return all_rets[tickers], all_rets["^GSPC"]
-
-def get_cf_var(res, conf=0.95):
-    s, k = skew(res), kurtosis(res)
-    z = norm.ppf(conf)
-    # Cornish-Fisher adjustment for non-normal distributions
-    z_cf = (z + (z**2 - 1) * s/6 + (z**3 - 3*z) * k/24 - (2*z**3 - 5*z) * s**2/36)
-    return -(res.mean() - z_cf * res.std())
-
-# --- MAIN EXECUTION ---
-ticker_list = [t.strip() for t in assets.split(",") if t.strip()]
+def get_global_data(tickers, start):
+    all_tickers = tickers + ["^GSPC"]
+    data = yf.download(all_tickers, start=start)['Close']
+    benchmark = data["^GSPC"].ffill()
+    assets_data = data.drop(columns=["^GSPC"]).ffill()
+    return assets_data, benchmark
 
 try:
-    if len(ticker_list) < 2:
-        st.warning("Please enter at least two tickers to build a portfolio.")
-    else:
-        rets, spy_rets = get_clean_data(ticker_list, start_date)
+    data, benchmark = get_global_data(ticker_list, start_date)
+    returns = data.pct_change().dropna()
+    bench_returns = benchmark.pct_change().dropna()
 
-        # 1. PORTFOLIO OPTIMIZATION
-        mu = expected_returns.mean_historical_return(rets)
-        S = risk_models.sample_cov(rets)
-        ef = EfficientFrontier(mu, S, weight_bounds=(0, max_weight))
-        weights = ef.max_sharpe()
-        clean_w = ef.clean_weights()
-        weights_arr = np.array(list(clean_w.values()))
+    # --- OPTIMIZATION ---
+    mu = expected_returns.mean_historical_return(data)
+    S = risk_models.sample_cov(data)
+    ef = EfficientFrontier(mu, S, weight_bounds=(min_cap, max_cap))
+    weights = ef.max_sharpe()
+    clean_weights = ef.clean_weights()
+    
+    # --- PERFORMANCE CALCULATIONS ---
+    weights_arr = np.array(list(clean_weights.values()))
+    portfolio_daily_returns = (returns * weights_arr).sum(axis=1)
+    portfolio_cum = (1 + portfolio_daily_returns).cumprod()
+    bench_cum = (1 + bench_returns).cumprod()
 
-        # 2. PERFORMANCE VS S&P 500
-        p_rets = (rets * weights_arr).sum(axis=1)
-        p_cum = (1 + p_rets).cumprod()
-        spy_cum = (1 + spy_rets).cumprod()
-        
-        # Risk Metrics
-        sharpe = (p_rets.mean() * 252) / (p_rets.std() * np.sqrt(252))
-        cf_var = get_cf_var(p_rets)
+    # Yearly Performance Table
+    p_daily_df = portfolio_daily_returns.to_frame(name='Returns')
+    yearly_perf = p_daily_df.groupby(p_daily_df.index.year).apply(lambda x: (1 + x).prod() - 1)
 
-        # --- UI: PERFORMANCE DASHBOARD ---
-        st.subheader("📊 Portfolio vs. S&P 500 Performance")
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Strategy Sharpe Ratio", f"{sharpe:.2f}")
-        m2.metric("Cornish-Fisher VaR (Risk)", f"{cf_var:.2%}")
-        m3.metric("Max Portfolio Drawdown", f"{((p_cum - p_cum.cummax())/p_cum.cummax()).min():.1%}")
+    # Risk Metrics
+    p_vol = portfolio_daily_returns.std() * np.sqrt(252)
+    p_sharpe = (portfolio_daily_returns.mean() * 252) / p_vol
+    max_drawdown = ((portfolio_cum - portfolio_cum.cummax()) / portfolio_cum.cummax()).min()
 
-        # --- CHART: CUMULATIVE RETURNS ---
-        fig_comp = go.Figure()
-        fig_comp.add_trace(go.Scatter(x=p_cum.index, y=p_cum, name="Optimized Strategy", line=dict(color='#00CC96', width=3)))
-        fig_comp.add_trace(go.Scatter(x=spy_cum.index, y=spy_cum, name="S&P 500 Benchmark", line=dict(dash='dash', color='#636EFA')))
-        fig_comp.update_layout(template="plotly_dark", title="Wealth Growth: $1 Investment", xaxis_title="Date", yaxis_title="Cumulative Return")
-        st.plotly_chart(fig_comp, use_container_width=True)
+    # --- DISPLAY METRICS ---
+    st.subheader("📊 Institutional Performance Metrics")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total Return", f"{(portfolio_cum.iloc[-1]-1):.1%}", f"{(portfolio_cum.iloc[-1]-bench_cum.iloc[-1]):.1%} vs S&P")
+    m2.metric("Annualized Vol", f"{p_vol:.1%}", "Risk Level")
+    m3.metric("Sharpe Ratio", f"{p_sharpe:.2f}", "Risk-Adjusted")
+    m4.metric("Max Drawdown", f"{max_drawdown:.1%}", "Peak-to-Trough", delta_color="inverse")
 
-        # --- CHART: CORRELATION HEATMAP ---
-        st.divider()
-        st.subheader("🧩 Asset Correlation Matrix")
-        corr_matrix = rets.corr()
-        fig_corr = px.imshow(corr_matrix, text_auto=".2f", aspect="auto", color_continuous_scale='RdBu_r', template="plotly_dark")
-        st.plotly_chart(fig_corr, use_container_width=True)
-        
-        # --- COVID STRESS TEST ---
-        st.divider()
-        st.subheader("🔄 COVID-19 Crash Recovery (Feb-Mar 2020)")
-        covid_mask = (p_rets.index >= '2020-02-19') & (p_rets.index <= '2020-03-23')
-        if covid_mask.any():
-            p_crash = (1 + p_rets[covid_mask]).prod() - 1
-            spy_crash = (1 + spy_rets[covid_mask]).prod() - 1
-            c1, c2 = st.columns(2)
-            c1.info(f"**Portfolio Return:** {p_crash:.2%}")
-            c2.info(f"**S&P 500 Return:** {spy_crash:.2%}")
+    # --- VISUALS ---
+    col_left, col_right = st.columns([1, 1.2])
 
-        # --- EXPORT ---
-        st.sidebar.divider()
-        st.sidebar.download_button("📂 Export Raw Data (CSV)", data=rets.to_csv().encode('utf-8'), file_name="strategy_data.csv")
+    with col_left:
+        st.subheader("📈 Optimal Weights")
+        weights_df = pd.DataFrame.from_dict(clean_weights, orient='index', columns=['Weight'])
+        fig_pie = px.pie(weights_df[weights_df['Weight']>0], values='Weight', names=weights_df[weights_df['Weight']>0].index, hole=0.4)
+        st.plotly_chart(fig_pie, use_container_width=True)
+        st.table(yearly_perf.style.format("{:.2%}"))
+
+    with col_right:
+        st.subheader("📊 Growth of $10,000")
+        fig_bench = go.Figure()
+        fig_bench.add_trace(go.Scatter(x=portfolio_cum.index, y=portfolio_cum*10000, name="Portfolio", line=dict(color='#FFD700', width=3)))
+        fig_bench.add_trace(go.Scatter(x=bench_cum.index, y=bench_cum*10000, name="S&P 500", line=dict(color='white', dash='dash')))
+        fig_bench.update_layout(template="plotly_dark", height=450)
+        st.plotly_chart(fig_bench, use_container_width=True)
+
+    # --- NEW: CORRELATION HEATMAP ---
+    st.divider()
+    st.subheader("🧩 Asset Correlation Matrix")
+    corr_matrix = returns.corr()
+    fig_corr = px.imshow(corr_matrix, text_auto=".2f", aspect="auto", color_continuous_scale='RdBu_r', labels=dict(color="Correlation"))
+    st.plotly_chart(fig_corr, use_container_width=True)
+    st.info("Correlation explains how assets move together. Values near 1.0 mean they move in sync, while lower values provide better diversification.")
+
+    # --- DOWNLOAD ---
+    csv = weights_df.to_csv().encode('utf-8')
+    download_placeholder.download_button("📥 Export Portfolio Report", data=csv, file_name='portfolio_analysis.csv')
 
 except Exception as e:
-    # This block fixes the SyntaxError shown in your terminal!
-    st.error(f"Strategy Engine Error: {e}")
+    st.error(f"Analysis Error: {e}") this si the code for it now tell me
+
 
 
 
