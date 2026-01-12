@@ -87,7 +87,7 @@ try:
         st.divider()
         st.subheader("🧩 Asset Correlation Matrix")
         corr_matrix = rets.corr()
-                fig_corr = px.imshow(corr_matrix, text_auto=".2f", aspect="auto", 
+        fig_corr = px.imshow(corr_matrix, text_auto=".2f", aspect="auto", 
                              color_continuous_scale='RdBu_r', template="plotly_dark")
         st.plotly_chart(fig_corr, use_container_width=True)
 
@@ -104,13 +104,6 @@ try:
         else:
             st.info("Start Date is after the 2020 COVID crash period.")
 
-        # --- EXPORT ---
-        st.sidebar.divider()
-        csv = rets.to_csv().encode('utf-8')
-        st.sidebar.download_button("📂 Export Raw Returns (CSV)", data=csv, file_name="portfolio_returns.csv")
-
-except Exception as e:
-    st.error(f"Engine Error: {e}")
 
 
 
