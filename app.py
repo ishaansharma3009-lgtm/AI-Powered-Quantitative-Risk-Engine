@@ -5,7 +5,6 @@ import numpy as np
 from pypfopt import risk_models, EfficientFrontier, black_litterman, objective_functions
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import time
 from datetime import datetime
 import warnings
@@ -13,9 +12,9 @@ warnings.filterwarnings('ignore')
 
 # --- PAGE SETUP ---
 st.set_page_config(
-    page_title="Institutional Strategy Lab", 
+    page_title="Asset Management & Quantitative Risk Engine", 
     layout="wide",
-    page_icon="📈"
+    page_icon="📊"
 )
 
 # Custom CSS for professional styling
@@ -57,8 +56,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Title with professional styling
-st.markdown('<div class="main-header">Institutional Strategy & Geopolitical Risk Engine</div>', unsafe_allow_html=True)
-st.caption("Professional Portfolio Optimization with Integrated Risk Management")
+st.markdown('<div class="main-header">Asset Management & Quantitative Risk Engine</div>', unsafe_allow_html=True)
+st.caption("Advanced Portfolio Optimization with Geopolitical Risk Integration")
 
 # --- SIDEBAR: STRATEGIC CONTROLS ---
 with st.sidebar:
@@ -106,7 +105,9 @@ def convert_to_base_currency(prices_df, base_currency='USD'):
     ticker_currency_map = {
         'AAPL': 'USD', 'MSFT': 'USD', 'JPM': 'USD', 
         'MC.PA': 'EUR', 'ASML': 'EUR', 'NESN.SW': 'CHF',
-        '2330.TW': 'TWD', '7203.T': 'JPY', '^GSPC': 'USD'
+        '2330.TW': 'TWD', '7203.T': 'JPY', '^GSPC': 'USD',
+        'GOOGL': 'USD', 'AMZN': 'USD', 'TSLA': 'USD',
+        'XOM': 'USD', 'CVX': 'USD', 'WMT': 'USD'
     }
     
     # Get FX rates relative to USD
@@ -134,9 +135,8 @@ def convert_to_base_currency(prices_df, base_currency='USD'):
             try:
                 fx_data = yf.download(fx_pairs[currency], start=start_date, end=end_date, progress=False)['Close']
                 if not fx_data.empty:
-                    # For EUR/USD, 1 EUR = X USD, so we use as is
-                    # For JPY/USD, 1 JPY = X USD, so we use as is
-                    fx_rates[currency] = fx_data.reindex(prices_df.index).ffill()
+                    # Align indices
+                    fx_rates[currency] = fx_data.reindex(prices_df.index, method='ffill').ffill().bfill()
             except:
                 # Fallback rates if API fails
                 fallback_rates = {
@@ -174,7 +174,8 @@ def apply_geopolitical_overlay(weights, tickers, events, intensity):
         'Automotive': {'Supply Chain Disruption': 0.9, 'Trade Policy Changes': 0.7, 'EU Regulation Shift': 0.5},
         'Semiconductors': {'US-China Tech Tensions': 0.9, 'Supply Chain Disruption': 0.8, 'Trade Policy Changes': 0.7},
         'Healthcare': {'EU Regulation Shift': 0.5, 'Trade Policy Changes': 0.3, 'Currency Volatility': 0.2},
-        'Energy': {'Middle East Instability': 0.8, 'Trade Policy Changes': 0.6, 'Currency Volatility': 0.4}
+        'Energy': {'Middle East Instability': 0.8, 'Trade Policy Changes': 0.6, 'Currency Volatility': 0.4},
+        'Consumer': {'Supply Chain Disruption': 0.5, 'Trade Policy Changes': 0.4, 'Currency Volatility': 0.3}
     }
     
     ticker_sectors = {
@@ -217,29 +218,49 @@ def get_clean_data(tickers, start, end):
     if not tickers:
         return pd.DataFrame(), pd.Series(), {}
     
-    tickers = tickers[:8]  # Max 8 tickers
+    tickers = tickers[:10]  # Increased to 10 tickers
     all_tickers = tickers + ["^GSPC"]
     
     try:
-        raw_data = yf.download(all_tickers, start=start, end=end, progress=False)['Close']
+        # Download all data at once
+        raw_data = yf.download(all_tickers, start=start, end=end, progress=False)
+        
+        # FIXED: Handle multi-level column structure
+        if isinstance(raw_data.columns, pd.MultiIndex):
+            # Get just the 'Close' prices
+            raw_prices = raw_data['Close'].copy()
+        else:
+            # Single level column structure
+            raw_prices = raw_data['Close'].copy() if 'Close' in raw_data.columns else raw_data.copy()
+        
         time.sleep(1)
     except Exception as e:
-        st.warning("Bulk download failed, trying individual tickers...")
-        raw_data = pd.DataFrame()
+        st.warning(f"Bulk download failed: {str(e)}. Trying individual tickers...")
+        raw_prices = pd.DataFrame()
         for t in all_tickers:
             try:
                 ticker_data = yf.download(t, start=start, end=end, progress=False)
-                raw_data[t] = ticker_data['Close']
+                if not ticker_data.empty:
+                    # Handle different column structures
+                    if 'Close' in ticker_data.columns:
+                        raw_prices[t] = ticker_data['Close']
+                    else:
+                        raw_prices[t] = ticker_data.iloc[:, 0]  # Assume first column is price
                 time.sleep(0.5)
-            except:
+            except Exception as e:
+                st.warning(f"Failed to download {t}: {str(e)}")
                 continue
     
-    if raw_data.empty:
+    if raw_prices.empty:
         st.error("Could not fetch data. Please check ticker symbols and try again.")
         return pd.DataFrame(), pd.Series(), {}
     
+    # Ensure we have a DataFrame
+    if isinstance(raw_prices, pd.Series):
+        raw_prices = raw_prices.to_frame()
+    
     # Convert all prices to USD
-    converted_data = convert_to_base_currency(raw_data)
+    converted_data = convert_to_base_currency(raw_prices)
     
     # Clean and separate
     clean_df = converted_data.ffill().dropna()
@@ -247,7 +268,10 @@ def get_clean_data(tickers, start, end):
         return pd.DataFrame(), pd.Series(), {}
     
     benchmark = clean_df["^GSPC"] if "^GSPC" in clean_df.columns else pd.Series()
-    assets_data = clean_df.drop(columns=["^GSPC"]) if "^GSPC" in clean_df.columns else clean_df
+    
+    # Remove benchmark from assets data
+    asset_columns = [col for col in clean_df.columns if col != "^GSPC"]
+    assets_data = clean_df[asset_columns].copy()
     
     # Fixed market caps (in USD)
     fixed_caps = {
@@ -286,44 +310,78 @@ try:
         st.stop()
     
     ticker_list = available_tickers
-    returns = prices[ticker_list].pct_change().dropna()
+    
+    # Calculate returns - FIXED: Ensure we're working with DataFrame columns
+    if len(ticker_list) == 1:
+        # Single ticker case
+        returns = prices[ticker_list[0]].pct_change().dropna().to_frame()
+        returns.columns = ticker_list
+    else:
+        # Multiple tickers case
+        returns = prices[ticker_list].pct_change().dropna()
     
     if not bench_prices.empty:
         bench_returns = bench_prices.pct_change().dropna()
+        # Align dates
         common_idx = returns.index.intersection(bench_returns.index)
-        returns = returns.loc[common_idx]
-        bench_returns = bench_returns.loc[common_idx]
+        if len(common_idx) > 0:
+            returns = returns.loc[common_idx]
+            bench_returns = bench_returns.loc[common_idx]
+        else:
+            bench_returns = pd.Series()
     else:
         bench_returns = pd.Series()
     
-    if returns.empty:
-        st.error("Insufficient data for analysis. Try a longer time period.")
+    if returns.empty or len(returns) < 10:
+        st.error("Insufficient data for analysis. Try a longer time period or different tickers.")
         st.stop()
     
     # 1. Black-Litterman Optimization
     with st.spinner("Optimizing portfolio..."):
-        S = risk_models.sample_cov(prices[ticker_list])
+        # Ensure we have enough data for covariance matrix
+        if len(ticker_list) > 1:
+            S = risk_models.sample_cov(prices[ticker_list])
+        else:
+            # Single asset case - create a dummy covariance matrix
+            S = pd.DataFrame({ticker_list[0]: [0.04]}, index=ticker_list)
         
         available_caps = {t: market_caps.get(t, 1e11) for t in ticker_list}
-        prior_rets = black_litterman.market_implied_prior_returns(available_caps, 2.5, S)
         
+        # Calculate prior returns
+        try:
+            prior_rets = black_litterman.market_implied_prior_returns(available_caps, 2.5, S)
+        except Exception as e:
+            st.warning(f"Using fallback prior returns: {str(e)}")
+            # Fallback: Use historical returns
+            prior_rets = returns.mean() * 252
+        
+        # Ensure view ticker is in our list
         if view_ticker not in ticker_list:
             view_ticker = ticker_list[0]
         
-        bl = black_litterman.BlackLittermanModel(
-            S, 
-            pi=prior_rets, 
-            absolute_views={view_ticker: view_return}, 
-            omega="idzorek", 
-            view_confidences=[view_conf]
-        )
-        bl_mu = bl.bl_returns()
+        # Create Black-Litterman model
+        try:
+            bl = black_litterman.BlackLittermanModel(
+                S, 
+                pi=prior_rets, 
+                absolute_views={view_ticker: view_return}, 
+                omega="idzorek", 
+                view_confidences=[view_conf]
+            )
+            bl_mu = bl.bl_returns()
+        except Exception as e:
+            st.warning(f"Black-Litterman failed, using mean-variance optimization: {str(e)}")
+            bl_mu = prior_rets
     
     # 2. Base Optimization
-    ef = EfficientFrontier(bl_mu, S, weight_bounds=(0, max_cap))
-    ef.add_objective(objective_functions.L2_reg, gamma=div_penalty)
-    optimized_weights = ef.max_sharpe()
-    optimized_weights = ef.clean_weights()
+    try:
+        ef = EfficientFrontier(bl_mu, S, weight_bounds=(0, max_cap))
+        ef.add_objective(objective_functions.L2_reg, gamma=div_penalty)
+        optimized_weights = ef.max_sharpe()
+        optimized_weights = ef.clean_weights()
+    except Exception as e:
+        st.error(f"Optimization failed: {str(e)}. Using equal weights as fallback.")
+        optimized_weights = {t: 1/len(ticker_list) for t in ticker_list}
     
     # 3. Geopolitical Adjustment
     if geo_events and geo_intensity > 0.5:
@@ -335,7 +393,11 @@ try:
     weights_arr = np.array([final_weights.get(t, 0) for t in ticker_list])
     
     # 4. Performance Calculations
-    p_rets = (returns * weights_arr).sum(axis=1)
+    if len(ticker_list) == 1:
+        p_rets = returns[ticker_list[0]] * weights_arr[0]
+    else:
+        p_rets = (returns * weights_arr).sum(axis=1)
+    
     p_cum = (1 + p_rets).cumprod()
     
     if not bench_returns.empty:
@@ -346,7 +408,7 @@ try:
     ann_vol = p_rets.std() * np.sqrt(252)
     sharpe = ann_ret / ann_vol if ann_vol > 0 else 0
     max_dd = ((p_cum - p_cum.cummax()) / p_cum.cummax()).min()
-    sortino = ann_ret / (p_rets[p_rets < 0].std() * np.sqrt(252)) if p_rets[p_rets < 0].std() > 0 else 0
+    sortino = ann_ret / (p_rets[p_rets < 0].std() * np.sqrt(252)) if len(p_rets[p_rets < 0]) > 0 else 0
 
     # --- PERFORMANCE DASHBOARD ---
     st.markdown('<div class="sub-header">Performance & Risk Analytics</div>', unsafe_allow_html=True)
@@ -501,6 +563,49 @@ try:
         else:
             st.info("Enable geopolitical risk overlay in sidebar to see adjustments.")
 
+    # --- RISK ANALYSIS ---
+    st.divider()
+    st.markdown('<div class="sub-header">Risk Decomposition</div>', unsafe_allow_html=True)
+    
+    # Calculate risk contributions
+    if len(ticker_list) > 1:
+        # Calculate covariance matrix
+        cov_matrix = returns.cov() * 252
+        
+        # Calculate risk contributions
+        portfolio_variance = weights_arr.T @ cov_matrix.values @ weights_arr
+        marginal_contributions = (cov_matrix.values @ weights_arr) / np.sqrt(portfolio_variance) if portfolio_variance > 0 else weights_arr * 0
+        risk_contributions = weights_arr * marginal_contributions
+        
+        risk_df = pd.DataFrame({
+            'Asset': ticker_list,
+            'Weight': [final_weights.get(t, 0) * 100 for t in ticker_list],
+            'Risk Contribution (%)': risk_contributions * 100 / risk_contributions.sum() if risk_contributions.sum() > 0 else [0] * len(ticker_list)
+        })
+        
+        fig_risk = go.Figure(go.Bar(
+            x=risk_df['Asset'],
+            y=risk_df['Risk Contribution (%)'],
+            marker_color='#DC2626',
+            text=risk_df['Risk Contribution (%)'].apply(lambda x: f'{x:.1f}%'),
+            textposition='auto'
+        ))
+        
+        fig_risk.update_layout(
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            height=300,
+            xaxis_title="Asset",
+            yaxis_title="Risk Contribution (%)",
+            font=dict(family="Arial, sans-serif")
+        )
+        fig_risk.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6')
+        fig_risk.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#F3F4F6')
+        
+        st.plotly_chart(fig_risk, use_container_width=True)
+    else:
+        st.info("Risk decomposition requires multiple assets.")
+
     # --- EXPORT SECTION ---
     st.divider()
     st.markdown('<div class="sub-header">Export Results</div>', unsafe_allow_html=True)
@@ -560,6 +665,9 @@ try:
 except Exception as e:
     st.error(f"Execution Error: {str(e)}")
     
+    import traceback
+    st.code(traceback.format_exc())
+    
     if "rate limit" in str(e).lower():
         st.info("""
         **Rate Limit Issue Detected**
@@ -579,13 +687,7 @@ except Exception as e:
         2. International tickers include exchange suffix (e.g., MC.PA for LVMH on Paris exchange)
         3. Symbols are comma-separated without spaces between commas
         """)
-    
-    elif "currency" in str(e).lower():
-        st.info("""
-        **Currency Conversion Issue**
-        
-        Some currency pairs may not be available. The system will use fallback rates.
-        """)
+
 
 
 
