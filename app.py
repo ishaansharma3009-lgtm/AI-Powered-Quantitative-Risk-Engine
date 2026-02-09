@@ -6,7 +6,6 @@ from pypfopt import risk_models, EfficientFrontier, black_litterman, objective_f
 import plotly.express as px
 import plotly.graph_objects as go
 import time
-from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -67,11 +66,8 @@ with st.sidebar:
     assets = st.text_input("Tickers (comma-separated)", default_tickers)
     ticker_list = [t.strip() for t in assets.split(",") if t.strip()]
     
-    col1, col2 = st.columns(2)
-    with col1:
-        start_date = st.date_input("Start Date", value=pd.to_datetime("2021-01-01"))
-    with col2:
-        end_date = st.date_input("End Date", value=pd.to_datetime("2024-12-31"))
+    # SINGLE DATE INPUT AS ORIGINAL
+    start_date = st.date_input("Analysis Start", value=pd.to_datetime("2021-01-01"))
     
     st.divider()
     st.markdown("### Geopolitical Risk Overlay")
@@ -86,11 +82,8 @@ with st.sidebar:
     st.divider()
     st.markdown("### Black-Litterman View")
     view_ticker = st.selectbox("Asset for View", ticker_list if ticker_list else ["AAPL"])
-    col1, col2 = st.columns(2)
-    with col1:
-        view_return = st.slider(f"Return for {view_ticker} (%)", -20, 40, 10) / 100
-    with col2:
-        view_conf = st.slider("View Confidence (%)", 10, 100, 50) / 100
+    view_return = st.slider(f"Return for {view_ticker} (%)", -20, 40, 10) / 100
+    view_conf = st.slider("View Confidence (%)", 10, 100, 50) / 100
 
     st.divider()
     st.markdown("### Compliance & Risk")
@@ -133,7 +126,7 @@ def convert_to_base_currency(prices_df, base_currency='USD'):
     for currency in needed_currencies:
         if currency in fx_pairs:
             try:
-                fx_data = yf.download(fx_pairs[currency], start=start_date, end=end_date, progress=False)['Close']
+                fx_data = yf.download(fx_pairs[currency], start=start_date, progress=False)['Close']
                 if not fx_data.empty:
                     # Align indices
                     fx_rates[currency] = fx_data.reindex(prices_df.index, method='ffill').ffill().bfill()
@@ -188,7 +181,6 @@ def apply_geopolitical_overlay(weights, tickers, events, intensity):
     }
     
     adjustments = {}
-    risk_scores = {}
     
     for ticker in tickers:
         if ticker not in weights:
@@ -197,7 +189,6 @@ def apply_geopolitical_overlay(weights, tickers, events, intensity):
         total_risk = 0
         for event in events:
             total_risk += sector_risk.get(sector, {}).get(event, 0.1)
-        risk_scores[ticker] = total_risk
         reduction_factor = 1 - (total_risk * intensity * 0.15)
         adjustments[ticker] = max(0.01, weights[ticker] * reduction_factor)
     
@@ -213,25 +204,41 @@ def apply_geopolitical_overlay(weights, tickers, events, intensity):
 
 # --- DATA ENGINE WITH CURRENCY CONVERSION ---
 @st.cache_data(ttl=3600)
-def get_clean_data(tickers, start, end):
-    """Safe data fetching with currency conversion"""
+def get_clean_data(tickers, start):
+    """Safe data fetching with currency conversion - FIXED VERSION"""
     if not tickers:
         return pd.DataFrame(), pd.Series(), {}
     
-    tickers = tickers[:10]  # Increased to 10 tickers
+    tickers = tickers[:10]
     all_tickers = tickers + ["^GSPC"]
     
     try:
-        # Download all data at once
-        raw_data = yf.download(all_tickers, start=start, end=end, progress=False)
+        # Download all data at once - FIX: Use proper parameter names
+        raw_data = yf.download(all_tickers, start=start, progress=False, group_by='ticker')
         
-        # FIXED: Handle multi-level column structure
+        # DEBUG: Check structure
         if isinstance(raw_data.columns, pd.MultiIndex):
-            # Get just the 'Close' prices
-            raw_prices = raw_data['Close'].copy()
+            # MultiIndex structure - extract Close prices for each ticker
+            close_prices = pd.DataFrame()
+            for ticker in all_tickers:
+                if ticker in raw_data.columns.get_level_values(0):
+                    close_prices[ticker] = raw_data[ticker]['Close']
+                else:
+                    # Try alternative approach
+                    try:
+                        # Download individually if not found
+                        ticker_data = yf.download(ticker, start=start, progress=False)
+                        if not ticker_data.empty:
+                            close_prices[ticker] = ticker_data['Close']
+                    except:
+                        continue
+            raw_prices = close_prices
         else:
             # Single level column structure
-            raw_prices = raw_data['Close'].copy() if 'Close' in raw_data.columns else raw_data.copy()
+            if 'Close' in raw_data.columns:
+                raw_prices = raw_data['Close'].copy()
+            else:
+                raw_prices = raw_data.copy()
         
         time.sleep(1)
     except Exception as e:
@@ -239,14 +246,10 @@ def get_clean_data(tickers, start, end):
         raw_prices = pd.DataFrame()
         for t in all_tickers:
             try:
-                ticker_data = yf.download(t, start=start, end=end, progress=False)
-                if not ticker_data.empty:
-                    # Handle different column structures
-                    if 'Close' in ticker_data.columns:
-                        raw_prices[t] = ticker_data['Close']
-                    else:
-                        raw_prices[t] = ticker_data.iloc[:, 0]  # Assume first column is price
-                time.sleep(0.5)
+                ticker_data = yf.download(t, start=start, progress=False)
+                if not ticker_data.empty and 'Close' in ticker_data.columns:
+                    raw_prices[t] = ticker_data['Close']
+                time.sleep(0.3)
             except Exception as e:
                 st.warning(f"Failed to download {t}: {str(e)}")
                 continue
@@ -295,9 +298,9 @@ try:
         st.warning("Please enter at least one ticker symbol.")
         st.stop()
     
-    # Load data
+    # Load data - FIXED: Use only start_date as parameter
     with st.spinner("Fetching market data and converting currencies..."):
-        prices, bench_prices, market_caps = get_clean_data(ticker_list, start_date, end_date)
+        prices, bench_prices, market_caps = get_clean_data(ticker_list, start_date)
     
     if prices.empty:
         st.error("No data available for the selected tickers/period.")
@@ -311,7 +314,7 @@ try:
     
     ticker_list = available_tickers
     
-    # Calculate returns - FIXED: Ensure we're working with DataFrame columns
+    # Calculate returns - Handle both single and multiple tickers
     if len(ticker_list) == 1:
         # Single ticker case
         returns = prices[ticker_list[0]].pct_change().dropna().to_frame()
@@ -651,7 +654,7 @@ try:
                          'Geopolitical Events', 'Risk Intensity', 'Analysis Period'],
             'Value': [view_ticker, f'{view_return:.1%}', f'{view_conf:.0%}', f'{max_cap:.0%}', div_penalty,
                      ', '.join(geo_events) if geo_events else 'None', geo_intensity, 
-                     f'{start_date} to {end_date}']
+                     f'From {start_date}']
         })
         csv_params = params_df.to_csv(index=False).encode('utf-8')
         st.download_button(
@@ -687,11 +690,3 @@ except Exception as e:
         2. International tickers include exchange suffix (e.g., MC.PA for LVMH on Paris exchange)
         3. Symbols are comma-separated without spaces between commas
         """)
-
-
-
-
-
-
-
-
