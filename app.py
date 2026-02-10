@@ -561,4 +561,5 @@ except Exception as e:
     3. <strong>Insufficient data:</strong> Try a longer time period or different start date<br>
     4. <strong>Network issues:</strong> Check your internet connection
     </div>
-    """, unsafe_allow_html=True) my code
+    """, unsafe_allow_html=True) 
+
