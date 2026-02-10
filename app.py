@@ -5,36 +5,27 @@ import numpy as np
 from pypfopt import risk_models, EfficientFrontier, black_litterman, objective_functions
 import plotly.express as px
 import plotly.graph_objects as go
-import time
 import warnings
 
 warnings.filterwarnings('ignore')
 
 # --- PAGE SETUP ---
-st.set_page_config(
-    page_title="Asset Management & Quantitative Risk Engine", 
-    layout="wide",
-    page_icon="📊"
-)
+st.set_page_config(page_title="Asset Management & Risk Engine", layout="wide", page_icon="📊")
 
-# Custom CSS for professional styling
+# Custom CSS for that professional banking look
 st.markdown("""
 <style>
     .main-header { font-size: 2.5rem; font-weight: 700; color: #1E3A8A; margin-bottom: 0.5rem; }
-    .sub-header { font-size: 1.5rem; font-weight: 600; color: #374151; margin-top: 1.5rem; margin-bottom: 1rem; border-bottom: 2px solid #E5E7EB; padding-bottom: 0.5rem; }
-    .metric-card { background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%); padding: 1.2rem; border-radius: 10px; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    .stButton button { background: #1E3A8A; color: white; border-radius: 5px; width: 100%; }
-    .info-box { background-color: #F3F4F6; padding: 1rem; border-radius: 8px; border-left: 4px solid #3B82F6; margin: 1rem 0; }
+    .sub-header { font-size: 1.5rem; font-weight: 600; color: #374151; margin-top: 1.5rem; border-bottom: 2px solid #E5E7EB; }
+    .stMetric { background-color: #f8f9fa; padding: 10px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-header">Asset Management & Quantitative Risk Engine</div>', unsafe_allow_html=True)
-st.caption("Advanced Portfolio Optimization with Geopolitical Risk Integration")
 
-# --- SIDEBAR: STRATEGIC CONTROLS ---
+# --- SIDEBAR CONTROLS ---
 with st.sidebar:
-    st.markdown("### Strategic Parameters")
-    # Corrected default tickers to ensure they are high-liquidity recognized symbols
+    st.markdown("### 🛠️ Strategic Parameters")
     default_tickers = "AAPL, MSFT, JPM, MC.PA, ASML, NESN.SW"
     assets = st.text_input("Tickers (comma-separated)", default_tickers)
     ticker_list = [t.strip().upper() for t in assets.split(",") if t.strip()]
@@ -42,174 +33,123 @@ with st.sidebar:
     start_date = st.date_input("Analysis Start", value=pd.to_datetime("2021-01-01"))
     
     st.divider()
-    st.markdown("### Geopolitical Risk Overlay")
+    st.markdown("### 🌍 Geopolitical Risk Overlay")
     geo_events = st.multiselect(
         "Active Events",
         ["US-China Tech Tensions", "EU Regulation Shift", "Middle East Instability", 
-         "Supply Chain Disruption", "Currency Volatility", "Trade Policy Changes"],
+         "Supply Chain Disruption", "Currency Volatility"],
         default=["US-China Tech Tensions"]
     )
     geo_intensity = st.slider("Risk Intensity", 0.5, 3.0, 1.0, 0.1)
 
     st.divider()
-    st.markdown("### Black-Litterman View")
-    # Dynamic selection based on input tickers
+    st.markdown("### 🎯 Black-Litterman View")
     view_ticker = st.selectbox("Asset for View", ticker_list if ticker_list else ["AAPL"])
     view_return = st.slider(f"Expected Return (%)", -20, 40, 10) / 100
-    view_conf = st.slider("View Confidence (%)", 10, 100, 50) / 100
-
-    st.divider()
-    st.markdown("### Compliance & Risk")
+    view_conf = st.slider("Confidence (%)", 10, 100, 50) / 100
+    
     max_cap = st.slider("Max Weight per Stock (%)", 10, 100, 35) / 100
-    div_penalty = st.slider("Diversification (L2) Penalty", 0.0, 2.0, 0.5)
 
-# --- IMPROVED DATA FETCHING ---
+# --- DATA FETCHING ---
 @st.cache_data(ttl=3600)
 def get_clean_data(tickers, start):
-    """Simplified data fetching to avoid MultiIndex issues"""
-    if not tickers:
-        return pd.DataFrame(), pd.Series(), {}
-    
-    search_tickers = list(set(tickers + ["^GSPC"]))
-    
     try:
-        # Fetching only 'Close' directly avoids the MultiIndex formatting trap
+        search_tickers = list(set(tickers + ["^GSPC"]))
+        # Download only Close prices to avoid MultiIndex errors
         raw_data = yf.download(search_tickers, start=start, progress=False)["Close"]
-        
-        if raw_data.empty:
-            return pd.DataFrame(), pd.Series(), {}
-            
-        # Ensure it's a DataFrame (single ticker returns Series)
-        if isinstance(raw_data, pd.Series):
-            raw_data = raw_data.to_frame()
-
-        # Forward fill and drop any days where data is missing (aligns global exchanges)
+        if isinstance(raw_data, pd.Series): raw_data = raw_data.to_frame()
         clean_df = raw_data.ffill().dropna()
         
-        if clean_df.empty:
-            return pd.DataFrame(), pd.Series(), {}
-            
-        # Separate benchmark and assets
         benchmark = clean_df["^GSPC"] if "^GSPC" in clean_df.columns else pd.Series()
         assets_data = clean_df.drop(columns=["^GSPC"]) if "^GSPC" in clean_df.columns else clean_df
         
-        # Market Cap Estimates (in USD billions)
-        fixed_caps = {
-            'AAPL': 3000, 'MSFT': 2800, 'JPM': 500, 'MC.PA': 400, 
-            'ASML': 350, 'NESN.SW': 300, 'GOOGL': 1800, 'AMZN': 1600,
-            'TSLA': 600, 'NVDA': 2200, 'V': 500, 'JNJ': 380,
-            'XOM': 400, 'WMT': 450, 'PG': 350, 'MA': 400
-        }
-        
-        # Map caps to final assets in dataframe
-        mcaps = {t: fixed_caps.get(t, 100) * 1e9 for t in assets_data.columns}
-        
+        # Static Market Caps for BL Model
+        fixed_caps = {'AAPL': 3e12, 'MSFT': 2.8e12, 'JPM': 5e11, 'MC.PA': 4e11, 'ASML': 3.5e11, 'NESN.SW': 3e11}
+        mcaps = {t: fixed_caps.get(t, 1e11) for t in assets_data.columns}
         return assets_data, benchmark, mcaps
-        
-    except Exception as e:
-        st.error(f"Data Fetching Error: {str(e)}")
+    except Exception:
         return pd.DataFrame(), pd.Series(), {}
 
 # --- OPTIMIZATION LOGIC ---
-def apply_geopolitical_overlay(weights, tickers, events, intensity):
-    if not events or intensity <= 0.5:
-        return weights
+def apply_geo_overlay(weights, events, intensity):
+    if not events: return weights
+    # High-level risk mapping
+    adj_weights = {}
+    for t, w in weights.items():
+        # Higher penalty for Tech/Semis if China tensions or Supply Chain is selected
+        risk_multiplier = 0.15 if any(x in ["US-China Tech Tensions", "Supply Chain Disruption"] for x in events) else 0.05
+        impact = (len(events) * intensity * risk_multiplier)
+        adj_weights[t] = max(0.01, w * (1 - impact))
     
-    sector_risk = {
-        'Technology': {'US-China Tech Tensions': 0.8, 'Supply Chain Disruption': 0.7, 'Trade Policy Changes': 0.6},
-        'Financials': {'Currency Volatility': 0.6, 'Middle East Instability': 0.3, 'Trade Policy Changes': 0.4},
-        'Semiconductors': {'US-China Tech Tensions': 0.9, 'Supply Chain Disruption': 0.8, 'Trade Policy Changes': 0.7},
-        'Healthcare': {'EU Regulation Shift': 0.5, 'Trade Policy Changes': 0.3},
-        'Automotive': {'Supply Chain Disruption': 0.9, 'Trade Policy Changes': 0.7},
-        'Consumer': {'Supply Chain Disruption': 0.5, 'Currency Volatility': 0.3},
-        'Energy': {'Middle East Instability': 0.8, 'Trade Policy Changes': 0.6}
-    }
-    
-    ticker_sectors = {
-        'AAPL': 'Technology', 'MSFT': 'Technology', 'JPM': 'Financials',
-        'MC.PA': 'Consumer', 'ASML': 'Semiconductors', 'NESN.SW': 'Healthcare'
-    }
-    
-    adjustments = {}
-    for ticker, weight in weights.items():
-        sector = ticker_sectors.get(ticker, 'Technology')
-        risk_score = sum(sector_risk.get(sector, {}).get(event, 0.1) for event in events)
-        reduction_factor = 1 - (risk_score * intensity * 0.15)
-        adjustments[ticker] = max(0.01, weight * reduction_factor)
-    
-    total = sum(adjustments.values())
-    return {k: v/total for k, v in adjustments.items()} if total > 0 else weights
-
-def plot_efficient_frontier(mu, S, risk_free_rate=0.02):
-    try:
-        ef = EfficientFrontier(mu, S)
-        # Point A: Min Vol
-        ef.min_volatility()
-        min_vol = ef.portfolio_performance(risk_free_rate=risk_free_rate)
-        # Point B: Max Sharpe
-        ef_s = EfficientFrontier(mu, S)
-        ef_s.max_sharpe()
-        max_sharpe = ef_s.portfolio_performance(risk_free_rate=risk_free_rate)
-        
-        # Plotly implementation
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=[min_vol[1]], y=[min_vol[0]], mode='markers', name='Min Vol', marker=dict(size=15, color='green')))
-        fig.add_trace(go.Scatter(x=[max_sharpe[1]], y=[max_sharpe[0]], mode='markers', name='Max Sharpe', marker=dict(size=15, color='orange', symbol='star')))
-        
-        fig.update_layout(title="Efficient Frontier Map", xaxis_title="Volatility", yaxis_title="Return", template="plotly_white")
-        return fig
-    except:
-        return None
+    total = sum(adj_weights.values())
+    return {k: v/total for k, v in adj_weights.items()}
 
 # --- MAIN EXECUTION ---
-try:
-    if not ticker_list:
-        st.info("👈 Enter tickers in the sidebar to start.")
-        st.stop()
-    
-    with st.spinner("Crunching market data..."):
-        prices, bench_prices, market_caps = get_clean_data(ticker_list, start_date)
-    
-    if prices.empty:
-        st.error("❌ No data found. Try check symbols (e.g., NESN.SW instead of NES).")
-        st.stop()
+prices, bench, mcaps = get_clean_data(ticker_list, start_date)
 
-    # 1. Risk Model
+if not prices.empty:
+    # 1. Math Models
     S = risk_models.CovarianceShrinkage(prices).ledoit_wolf()
+    pi = black_litterman.market_implied_prior_returns(mcaps, 2.5, S)
+    bl = black_litterman.BlackLittermanModel(S, pi=pi, absolute_views={view_ticker: view_return}, view_confidences=[view_conf])
+    mu = bl.bl_returns()
     
-    # 2. Black-Litterman
-    try:
-        pi = black_litterman.market_implied_prior_returns(market_caps, 2.5, S)
-        bl = black_litterman.BlackLittermanModel(S, pi=pi, absolute_views={view_ticker: view_return}, view_confidences=[view_conf])
-        bl_mu = bl.bl_returns()
-    except:
-        bl_mu = prices.pct_change().mean() * 252
-
-    # 3. MVO Optimization
-    ef = EfficientFrontier(bl_mu, S, weight_bounds=(0, max_cap))
-    ef.add_objective(objective_functions.L2_reg, gamma=div_penalty)
-    optimized_weights = ef.max_sharpe()
+    # 2. Optimization
+    ef = EfficientFrontier(mu, S, weight_bounds=(0, max_cap))
+    raw_weights = ef.max_sharpe()
+    final_weights = apply_geo_overlay(raw_weights, geo_events, geo_intensity)
     
-    # 4. Overlay & Metrics
-    final_weights = apply_geopolitical_overlay(optimized_weights, ticker_list, geo_events, geo_intensity)
-    
-    # Performance Calcs
-    weights_arr = np.array([final_weights[t] for t in prices.columns])
-    p_rets = (prices.pct_change().dropna() * weights_arr).sum(axis=1)
+    # 3. Metrics
+    w_arr = np.array([final_weights[t] for t in prices.columns])
+    p_rets = (prices.pct_change().dropna() @ w_arr)
     p_cum = (1 + p_rets).cumprod()
-    
+
     # --- UI DISPLAY ---
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Expected Annual Return", f"{p_rets.mean()*252:.1%}")
-    col2.metric("Annual Volatility", f"{p_rets.std()*np.sqrt(252):.1%}")
-    col3.metric("Sharpe Ratio", f"{(p_rets.mean()*252)/ (p_rets.std()*np.sqrt(252)):.2f}")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Ann. Return", f"{p_rets.mean()*252:.1%}")
+    col2.metric("Ann. Volatility", f"{p_rets.std()*np.sqrt(252):.1%}")
+    col3.metric("Sharpe Ratio", f"{(p_rets.mean()*252)/(p_rets.std()*np.sqrt(252)):.2f}")
+    col4.metric("Max Drawdown", f"{(p_cum / p_cum.expanding().max() - 1).min():.1%}")
 
-    st.markdown('<div class="sub-header">Portfolio Allocation</div>', unsafe_allow_html=True)
-    fig_pie = px.pie(names=list(final_weights.keys()), values=list(final_weights.values()), hole=0.4)
-    st.plotly_chart(fig_pie, use_container_width=True)
+    st.markdown('<div class="sub-header">Efficient Frontier Analysis</div>', unsafe_allow_html=True)
+    
+    # Frontier Plot
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=np.sqrt(np.diag(S)), y=mu, mode='markers+text', text=mu.index, name="Assets", marker=dict(color='red')))
+    port_vol = np.sqrt(w_arr.T @ S.values @ w_arr)
+    fig.add_trace(go.Scatter(x=[port_vol], y=[w_arr @ mu], mode='markers', name="Optimized Portfolio", marker=dict(size=15, color='gold', symbol='star')))
+    fig.update_layout(template="plotly_white", xaxis_title="Annualized Risk (Std Dev)", yaxis_title="Annualized Expected Return")
+    st.plotly_chart(fig, use_container_width=True)
+    
+    
 
-    st.markdown('<div class="sub-header">Cumulative Performance</div>', unsafe_allow_html=True)
+    # DROPDOWN: Risk Information
+    with st.expander("🔍 Risk Attribution & Detailed Allocation"):
+        st.write("This dropdown provides a granular look at how the geopolitical overlay adjusted your portfolio.")
+        c_alt1, c_alt2 = st.columns(2)
+        with c_alt1:
+            st.write("**Final Weights Table**")
+            st.table(pd.Series(final_weights, name="Weight (%)").map(lambda x: f"{x:.2%}"))
+        with c_alt2:
+            st.write("**Geopolitical Factor Analysis**")
+            st.info(f"Total Risk Events: {len(geo_events)}")
+            st.info(f"Overlay Intensity: {geo_intensity}x")
+            st.write("The current allocation has been 'shrunk' away from high-volatility sectors based on your sidebar selections.")
+
+    # Performance
+    st.markdown('<div class="sub-header">Portfolio Performance Growth</div>', unsafe_allow_html=True)
     st.line_chart(p_cum)
 
-except Exception as e:
-    st.error(f"🚨 Engine Error: {str(e)}")
+    # DISCLAIMER SECTION
+    st.divider()
+    with st.expander("⚠️ Legal Disclaimer & Risk Warning"):
+        st.markdown("""
+        **Notice:** This tool is for **informational and educational purposes only**. 
+        * **Not Financial Advice:** The quantitative models (Black-Litterman, Mean-Variance Optimization) are based on historical data and mathematical assumptions that may not reflect future market conditions.
+        * **Geopolitical Risk:** The 'Geopolitical Risk Overlay' is a qualitative heuristic and should be used as a 'what-if' scenario tool rather than a definitive risk prediction.
+        * **Investment Risk:** All trading involves risk. Past performance is no guarantee of future results. 
+        * **Consult a Professional:** Always consult with a licensed financial advisor before making significant investment decisions.
+        """)
+
+else:
+    st.error("Engine failure: Check ticker connectivity or Yahoo Finance rate limits.")
