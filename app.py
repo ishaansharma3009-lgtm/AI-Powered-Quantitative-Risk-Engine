@@ -39,8 +39,13 @@ with st.sidebar:
     assets = st.text_input("Tickers (comma-separated)", default_tickers)
     ticker_list = [t.strip().upper() for t in assets.split(",") if t.strip()]
     
-    # FIXED: Use string date to avoid datetime issues
-    start_date = st.date_input("Analysis Start", value=datetime(2021, 1, 1))
+    # FIXED: Use a safe default date that's definitely in the past
+    default_start = datetime(2020, 1, 2)  # First trading day of 2020
+    start_date = st.date_input("Analysis Start", value=default_start)
+    
+    # ADDED: End date control to prevent future date issues
+    default_end = datetime.now()
+    end_date = st.date_input("Analysis End", value=default_end, max_value=default_end)
     
     st.divider()
     st.markdown("### Geopolitical Risk Overlay")
@@ -63,12 +68,47 @@ with st.sidebar:
     max_cap = st.slider("Max Weight per Stock (%)", 10, 100, 35) / 100
     div_penalty = st.slider("Diversification (L2) Penalty", 0.0, 2.0, 0.5)
 
-# --- RE-ENGINEERED DATA FETCHING ---
+# --- RE-ENGINEERED DATA FETCHING WITH FIXED DATE HANDLING ---
 @st.cache_data(ttl=3600)
-def get_clean_data(tickers, start):
-    """Robust data fetching with fallback mechanisms"""
+def get_clean_data(tickers, start, end):
+    """Robust data fetching with fallback mechanisms and proper date handling"""
     if not tickers:
         return pd.DataFrame(), pd.Series(), {}
+    
+    # FIX: Validate and convert dates properly
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    
+    # Handle start date
+    if hasattr(start, 'strftime'):
+        start_str = start.strftime('%Y-%m-%d')
+    elif isinstance(start, str):
+        start_str = start
+    else:
+        start_str = '2020-01-02'
+        st.warning(f"Date format issue. Using default start date: {start_str}")
+    
+    # Handle end date
+    if hasattr(end, 'strftime'):
+        end_str = end.strftime('%Y-%m-%d')
+    elif isinstance(end, str):
+        end_str = end
+    else:
+        end_str = today_str
+    
+    # Ensure we're not using future dates
+    if start_str > today_str:
+        start_str = '2020-01-02'
+        st.warning(f"Start date is in the future. Using default: {start_str}")
+    
+    if end_str > today_str:
+        end_str = today_str
+        st.warning(f"End date is in the future. Using today: {end_str}")
+    
+    # Ensure start is before end
+    if start_str >= end_str:
+        start_str = '2020-01-02'
+        end_str = today_str
+        st.warning(f"Start date must be before end date. Using default range.")
     
     # Ensure unique tickers
     all_tickers = list(set(tickers + ["^GSPC"]))
@@ -77,19 +117,14 @@ def get_clean_data(tickers, start):
     failed_tickers = []
     
     try:
-        # Convert date to string format for yfinance
-        if hasattr(start, 'strftime'):
-            start_str = start.strftime('%Y-%m-%d')
-        else:
-            start_str = str(start)
-        
-        # Try bulk download first with proper date format
+        # Try bulk download first with proper date range
         raw_data = yf.download(
             all_tickers, 
             start=start_str, 
+            end=end_str,
             progress=False, 
             group_by='ticker',
-            auto_adjust=True  # Add auto-adjust for dividends/splits
+            auto_adjust=True
         )
         time.sleep(1)  # Rate limit protection
         
@@ -117,6 +152,7 @@ def get_clean_data(tickers, start):
                 ticker_data = yf.download(
                     t, 
                     start=start_str, 
+                    end=end_str,
                     progress=False,
                     auto_adjust=True
                 )
@@ -167,18 +203,18 @@ def get_clean_data(tickers, start):
         for t in tickers:
             if t in assets_data.columns:
                 # Convert billions to actual value for Black-Litterman
-                mcaps[t] = fixed_caps.get(t, 100) * 1e9  # Convert to actual dollars
+                mcaps[t] = fixed_caps.get(t, 100) * 1e9
             else:
                 mcaps[t] = 1e11  # Default 100B market cap
         
         # Debug info
         st.success(f"✅ Successfully fetched data for {len(assets_data.columns)} tickers with {len(assets_data)} days of data")
+        st.info(f"📅 Date range: {assets_data.index[0].strftime('%Y-%m-%d')} to {assets_data.index[-1].strftime('%Y-%m-%d')}")
         
         return assets_data, benchmark, mcaps
         
     except Exception as e:
         st.error(f"❌ Data fetch error: {str(e)}")
-        # Return empty but with helpful message
         return pd.DataFrame(), pd.Series(), {}
 
 # --- OPTIMIZATION LOGIC ---
@@ -227,7 +263,7 @@ def apply_geopolitical_overlay(weights, tickers, events, intensity):
     total = sum(adjustments.values())
     if total > 0:
         return {k: v/total for k, v in adjustments.items()}
-    return weights  # Fallback if all weights become zero
+    return weights
 
 # --- EFFICIENT FRONTIER PLOT FUNCTION ---
 def plot_efficient_frontier(mu, S, risk_free_rate=0.02):
@@ -323,11 +359,14 @@ try:
     with st.expander("📋 Current Parameters", expanded=False):
         st.write(f"**Tickers:** {', '.join(ticker_list)}")
         st.write(f"**Start Date:** {start_date}")
+        st.write(f"**End Date:** {end_date}")
         st.write(f"**View Asset:** {view_ticker} with {view_return:.1%} expected return")
+        st.write(f"**View Confidence:** {view_conf:.0%}")
         st.write(f"**Geopolitical Events:** {', '.join(geo_events) if geo_events else 'None'}")
+        st.write(f"**Risk Intensity:** {geo_intensity:.1f}x")
     
     with st.spinner("📊 Fetching market data and optimizing portfolio..."):
-        prices, bench_prices, market_caps = get_clean_data(ticker_list, start_date)
+        prices, bench_prices, market_caps = get_clean_data(ticker_list, start_date, end_date)
     
     if prices.empty:
         st.error("""
@@ -336,8 +375,9 @@ try:
         **Possible reasons:**
         1. **Incorrect ticker format** - Make sure international stocks have exchange codes (e.g., `MC.PA` for LVMH Paris)
         2. **Start date is too recent** - Try an earlier date like 2020-01-01
-        3. **Yahoo Finance rate limits** - Wait 60 seconds and refresh
-        4. **Network issues** - Check your internet connection
+        3. **End date is in the future** - The system now auto-fixes this
+        4. **Yahoo Finance rate limits** - Wait 60 seconds and refresh
+        5. **Network issues** - Check your internet connection
         
         **Current default tickers should work:** AAPL, MSFT, JPM, MC.PA, ASML, NESN.SW
         """)
@@ -383,7 +423,7 @@ try:
             pi=prior_rets, 
             absolute_views={view_ticker: view_return},
             omega="idzorek",
-            view_confidences=[min(view_conf, 0.99)]  # Cap at 0.99 to avoid division by zero
+            view_confidences=[min(view_conf, 0.99)]
         )
         bl_mu = bl.bl_returns()
         
@@ -402,7 +442,7 @@ try:
         
         # Check if optimization produced valid weights
         total_weight = sum(optimized_weights.values())
-        if abs(total_weight - 1.0) > 0.01:  # Allow small rounding errors
+        if abs(total_weight - 1.0) > 0.01:
             st.warning(f"Weights sum to {total_weight:.2%}, normalizing to 100%")
             optimized_weights = {k: v/total_weight for k, v in optimized_weights.items()}
             
@@ -418,14 +458,36 @@ try:
     else:
         final_weights = optimized_weights
     
-    # 5. Calculate Portfolio Performance
+    # 5. Calculate Portfolio Performance - FIXED WITH PROPER VALIDATION
     weights_arr = np.array([final_weights.get(t, 0) for t in ticker_list])
-    returns = prices[ticker_list].pct_change().dropna()
     
-    if returns.empty:
-        st.error("❌ No returns data available after processing. Try different tickers or date range.")
+    # FIX: Check if we have enough price data
+    if len(prices) < 2:
+        st.error(f"❌ Insufficient data: only {len(prices)} day(s) of data. Need at least 2 days to calculate returns.")
+        st.info("Try an earlier start date or later end date.")
         st.stop()
     
+    # Calculate returns
+    returns = prices[ticker_list].pct_change().dropna()
+    
+    # FIX: Check if we have any returns data
+    if returns.empty or len(returns) < 5:
+        st.error(f"❌ No valid returns data. Got {len(prices)} price days but only {len(returns)} return days.")
+        st.info(f"""
+        **Debug Information:**
+        - Price data shape: {prices.shape}
+        - Date range: {prices.index[0].strftime('%Y-%m-%d')} to {prices.index[-1].strftime('%Y-%m-%d')}
+        - Number of trading days: {len(prices)}
+        - Valid return days: {len(returns)}
+        
+        **Suggestions:**
+        1. Extend your date range to at least 1 month of data
+        2. Use start date: 2020-01-01 or earlier
+        3. Ensure end date is not today (use yesterday's date)
+        """)
+        st.stop()
+    
+    # Calculate portfolio returns
     p_rets = (returns * weights_arr).sum(axis=1)
     p_cum = (1 + p_rets).cumprod()
     
@@ -475,7 +537,7 @@ try:
     with col_alloc1:
         # Pie chart
         w_df = pd.DataFrame.from_dict(final_weights, orient='index', columns=['Weight'])
-        w_df = w_df[w_df['Weight'] > 0.001]  # Filter negligible weights
+        w_df = w_df[w_df['Weight'] > 0.001]
         
         if not w_df.empty:
             fig_alloc = px.pie(
@@ -586,9 +648,10 @@ try:
     with col_exp3:
         # Export optimization parameters
         params = {
-            'Analysis_Date': pd.Timestamp.now().strftime('%Y-%m-%d'),
+            'Analysis_Date': datetime.now().strftime('%Y-%m-%d'),
             'Tickers': ', '.join(ticker_list),
             'Start_Date': start_date.strftime('%Y-%m-%d'),
+            'End_Date': end_date.strftime('%Y-%m-%d'),
             'View_Asset': view_ticker,
             'View_Return': f"{view_return:.2%}",
             'View_Confidence': f"{view_conf:.0%}",
@@ -636,10 +699,11 @@ except Exception as e:
     st.markdown("""
     <div class="info-box">
     <strong>Common issues and solutions:</strong><br>
-    1. <strong>Date format issue:</strong> The date has been fixed to work with yfinance<br>
+    1. <strong>Date format issue:</strong> Fixed - now using proper date handling with end date<br>
     2. <strong>Invalid ticker symbols:</strong> Check if all tickers are correct and include exchange codes for international stocks (e.g., MC.PA for LVMH)<br>
     3. <strong>Yahoo Finance rate limits:</strong> Wait 1-2 minutes and try again with fewer tickers<br>
-    4. <strong>Insufficient data:</strong> Try a longer time period or different start date<br>
-    5. <strong>Network issues:</strong> Check your internet connection
+    4. <strong>Insufficient data:</strong> Using default start date 2020-01-02 which has plenty of history<br>
+    5. <strong>Future dates:</strong> End date is now capped at today's date automatically<br>
+    6. <strong>Returns calculation:</strong> Now properly validates minimum data requirements
     </div>
     """, unsafe_allow_html=True)
