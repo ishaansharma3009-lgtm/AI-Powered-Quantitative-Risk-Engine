@@ -767,3 +767,4 @@ except Exception as e:
     6. <strong>Returns calculation:</strong> Debug mode can help identify issues
     </div>
     """, unsafe_allow_html=True)
+
