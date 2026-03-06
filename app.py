@@ -178,6 +178,17 @@ def get_clean_data(tickers, start, end):
         # Clean data - forward fill and drop any remaining NaNs
         clean_df = close_prices.ffill().bfill().dropna(how='all')
         
+        # FIX: Ensure all price data is numeric
+        for col in clean_df.columns:
+            clean_df[col] = pd.to_numeric(clean_df[col], errors='coerce')
+        
+        # Drop any columns that became all NaN
+        clean_df = clean_df.dropna(axis=1, how='all')
+        
+        # FIX: Ensure index is datetime
+        if not isinstance(clean_df.index, pd.DatetimeIndex):
+            clean_df.index = pd.to_datetime(clean_df.index)
+        
         # Check if cleaning removed all data
         if clean_df.empty or clean_df.shape[0] < 5:
             st.error(f"❌ Insufficient data after cleaning. Only {clean_df.shape[0]} rows available.")
@@ -458,7 +469,7 @@ try:
     else:
         final_weights = optimized_weights
     
-    # 5. Calculate Portfolio Performance - FIXED WITH PROPER VALIDATION
+    # 5. Calculate Portfolio Performance - FIXED WITH DIAGNOSTICS
     weights_arr = np.array([final_weights.get(t, 0) for t in ticker_list])
     
     # FIX: Check if we have enough price data
@@ -467,25 +478,81 @@ try:
         st.info("Try an earlier start date or later end date.")
         st.stop()
     
-    # Calculate returns
-    returns = prices[ticker_list].pct_change().dropna()
+    # DIAGNOSTIC: Show price data info
+    with st.expander("🔍 Price Data Diagnostics", expanded=False):
+        st.write("### Price Data Quality Check")
+        st.write(f"Price data types: {prices[ticker_list].dtypes}")
+        st.write(f"First 5 rows of prices:")
+        st.dataframe(prices[ticker_list].head())
+        st.write(f"Any null values? {prices[ticker_list].isnull().any().any()}")
+        st.write(f"Price summary stats:")
+        st.dataframe(prices[ticker_list].describe())
+    
+    # FIX: Ensure prices are float and calculate returns with error handling
+    try:
+        # Convert to float explicitly
+        prices_clean = prices[ticker_list].astype(float)
+        
+        # Calculate returns
+        returns = prices_clean.pct_change()
+        
+        # Check if first row is all NaN (which is normal for pct_change)
+        st.write(f"Returns shape: {returns.shape}")
+        st.write(f"First row of returns (should be NaN):")
+        st.dataframe(returns.head(1))
+        
+        # Drop NaN values (first row will be dropped)
+        returns = returns.dropna()
+        
+        st.write(f"Returns after dropping NaN: {returns.shape}")
+        st.write(f"Sample of valid returns:")
+        st.dataframe(returns.head())
+        
+    except Exception as e:
+        st.error(f"Error calculating returns: {str(e)}")
+        returns = pd.DataFrame()
     
     # FIX: Check if we have any returns data
     if returns.empty or len(returns) < 5:
-        st.error(f"❌ No valid returns data. Got {len(prices)} price days but only {len(returns)} return days.")
-        st.info(f"""
-        **Debug Information:**
-        - Price data shape: {prices.shape}
-        - Date range: {prices.index[0].strftime('%Y-%m-%d')} to {prices.index[-1].strftime('%Y-%m-%d')}
-        - Number of trading days: {len(prices)}
-        - Valid return days: {len(returns)}
+        st.error(f"❌ CRITICAL: No valid returns data. Got {len(prices)} price days but only {len(returns)} return days.")
         
-        **Suggestions:**
-        1. Extend your date range to at least 1 month of data
-        2. Use start date: 2020-01-01 or earlier
-        3. Ensure end date is not today (use yesterday's date)
-        """)
-        st.stop()
+        # Try alternative calculation method
+        st.info("Attempting alternative return calculation method...")
+        try:
+            returns_alt = pd.DataFrame()
+            for col in prices_clean.columns:
+                # Manual percentage change calculation
+                returns_alt[col] = (prices_clean[col].shift(-1) - prices_clean[col]) / prices_clean[col]
+            
+            returns_alt = returns_alt.dropna()
+            st.write(f"Alternative returns shape: {returns_alt.shape}")
+            
+            if not returns_alt.empty and len(returns_alt) >= 5:
+                st.success("✅ Alternative calculation worked!")
+                returns = returns_alt
+            else:
+                st.error(f"❌ Alternative calculation also failed.")
+                st.info(f"""
+                **Debug Information:**
+                - Price data shape: {prices.shape}
+                - Date range: {prices.index[0].strftime('%Y-%m-%d')} to {prices.index[-1].strftime('%Y-%m-%d')}
+                - Number of trading days: {len(prices)}
+                - Price data types: {prices[ticker_list].dtypes.to_dict()}
+                - First few price values:
+                """)
+                st.dataframe(prices[ticker_list].head())
+                
+                st.info("""
+                **Immediate Fix:**
+                1. Restart the app completely
+                2. Try with just US tickers first: AAPL, MSFT, JPM
+                3. If that works, add international tickers one by one
+                4. Check if Yahoo Finance is accessible in your region
+                """)
+                st.stop()
+        except Exception as e:
+            st.error(f"Alternative calculation error: {str(e)}")
+            st.stop()
     
     # Calculate portfolio returns
     p_rets = (returns * weights_arr).sum(axis=1)
@@ -704,6 +771,6 @@ except Exception as e:
     3. <strong>Yahoo Finance rate limits:</strong> Wait 1-2 minutes and try again with fewer tickers<br>
     4. <strong>Insufficient data:</strong> Using default start date 2020-01-02 which has plenty of history<br>
     5. <strong>Future dates:</strong> End date is now capped at today's date automatically<br>
-    6. <strong>Returns calculation:</strong> Now properly validates minimum data requirements
+    6. <strong>Returns calculation:</strong> Added comprehensive diagnostics and alternative calculation methods
     </div>
     """, unsafe_allow_html=True)
