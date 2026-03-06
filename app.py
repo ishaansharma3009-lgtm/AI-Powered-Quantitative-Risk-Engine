@@ -67,6 +67,11 @@ with st.sidebar:
     st.markdown("### Compliance & Risk")
     max_cap = st.slider("Max Weight per Stock (%)", 10, 100, 35) / 100
     div_penalty = st.slider("Diversification (L2) Penalty", 0.0, 2.0, 0.5)
+    
+    # --- DEBUG MODE OPTION 4 ---
+    st.divider()
+    st.markdown("### Developer Settings")
+    debug_mode = st.checkbox("Show Debug Information", value=False, help="Enable to see detailed data diagnostics")
 
 # --- RE-ENGINEERED DATA FETCHING WITH FIXED DATE HANDLING ---
 @st.cache_data(ttl=3600)
@@ -85,7 +90,8 @@ def get_clean_data(tickers, start, end):
         start_str = start
     else:
         start_str = '2020-01-02'
-        st.warning(f"Date format issue. Using default start date: {start_str}")
+        if debug_mode:
+            st.warning(f"Date format issue. Using default start date: {start_str}")
     
     # Handle end date
     if hasattr(end, 'strftime'):
@@ -98,17 +104,20 @@ def get_clean_data(tickers, start, end):
     # Ensure we're not using future dates
     if start_str > today_str:
         start_str = '2020-01-02'
-        st.warning(f"Start date is in the future. Using default: {start_str}")
+        if debug_mode:
+            st.warning(f"Start date is in the future. Using default: {start_str}")
     
     if end_str > today_str:
         end_str = today_str
-        st.warning(f"End date is in the future. Using today: {end_str}")
+        if debug_mode:
+            st.warning(f"End date is in the future. Using today: {end_str}")
     
     # Ensure start is before end
     if start_str >= end_str:
         start_str = '2020-01-02'
         end_str = today_str
-        st.warning(f"Start date must be before end date. Using default range.")
+        if debug_mode:
+            st.warning(f"Start date must be before end date. Using default range.")
     
     # Ensure unique tickers
     all_tickers = list(set(tickers + ["^GSPC"]))
@@ -163,7 +172,8 @@ def get_clean_data(tickers, start, end):
                         close_prices[t] = ticker_data['Adj Close']
                 time.sleep(0.5)
             except Exception as e:
-                st.warning(f"Failed to download {t}: {str(e)}")
+                if debug_mode:
+                    st.warning(f"Failed to download {t}: {str(e)}")
                 continue
         
         if close_prices.empty:
@@ -218,7 +228,7 @@ def get_clean_data(tickers, start, end):
             else:
                 mcaps[t] = 1e11  # Default 100B market cap
         
-        # Debug info
+        # Debug info (always show basic success)
         st.success(f"✅ Successfully fetched data for {len(assets_data.columns)} tickers with {len(assets_data)} days of data")
         st.info(f"📅 Date range: {assets_data.index[0].strftime('%Y-%m-%d')} to {assets_data.index[-1].strftime('%Y-%m-%d')}")
         
@@ -226,6 +236,9 @@ def get_clean_data(tickers, start, end):
         
     except Exception as e:
         st.error(f"❌ Data fetch error: {str(e)}")
+        if debug_mode:
+            import traceback
+            st.code(traceback.format_exc())
         return pd.DataFrame(), pd.Series(), {}
 
 # --- OPTIMIZATION LOGIC ---
@@ -357,7 +370,8 @@ def plot_efficient_frontier(mu, S, risk_free_rate=0.02):
         return fig
         
     except Exception as e:
-        st.warning(f"Could not generate efficient frontier: {str(e)}")
+        if debug_mode:
+            st.warning(f"Could not generate efficient frontier: {str(e)}")
         return None
 
 # --- MAIN EXECUTION ---
@@ -375,6 +389,7 @@ try:
         st.write(f"**View Confidence:** {view_conf:.0%}")
         st.write(f"**Geopolitical Events:** {', '.join(geo_events) if geo_events else 'None'}")
         st.write(f"**Risk Intensity:** {geo_intensity:.1f}x")
+        st.write(f"**Debug Mode:** {'Enabled' if debug_mode else 'Disabled'}")
     
     with st.spinner("📊 Fetching market data and optimizing portfolio..."):
         prices, bench_prices, market_caps = get_clean_data(ticker_list, start_date, end_date)
@@ -413,7 +428,8 @@ try:
     try:
         S = risk_models.CovarianceShrinkage(prices[ticker_list]).ledoit_wolf()
     except Exception as e:
-        st.warning(f"Using sample covariance matrix: {str(e)}")
+        if debug_mode:
+            st.warning(f"Using sample covariance matrix: {str(e)}")
         S = risk_models.sample_cov(prices[ticker_list])
     
     delta = 2.5  # Risk aversion coefficient
@@ -469,7 +485,7 @@ try:
     else:
         final_weights = optimized_weights
     
-    # 5. Calculate Portfolio Performance - FIXED WITH DIAGNOSTICS
+    # 5. Calculate Portfolio Performance - WITH DEBUG MODE CONTROL
     weights_arr = np.array([final_weights.get(t, 0) for t in ticker_list])
     
     # FIX: Check if we have enough price data
@@ -478,81 +494,58 @@ try:
         st.info("Try an earlier start date or later end date.")
         st.stop()
     
-    # DIAGNOSTIC: Show price data info
-    with st.expander("🔍 Price Data Diagnostics", expanded=False):
-        st.write("### Price Data Quality Check")
-        st.write(f"Price data types: {prices[ticker_list].dtypes}")
-        st.write(f"First 5 rows of prices:")
-        st.dataframe(prices[ticker_list].head())
-        st.write(f"Any null values? {prices[ticker_list].isnull().any().any()}")
-        st.write(f"Price summary stats:")
-        st.dataframe(prices[ticker_list].describe())
+    # Only show diagnostics if debug mode is enabled
+    if debug_mode:
+        with st.expander("🔍 Debug Information", expanded=False):
+            st.write("### Data Quality Metrics")
+            col_d1, col_d2, col_d3 = st.columns(3)
+            with col_d1:
+                st.metric("Price Days", len(prices))
+            with col_d2:
+                st.metric("Tickers", len(ticker_list))
+            with col_d3:
+                st.metric("Date Range", f"{prices.index[0].strftime('%Y-%m-%d')} to {prices.index[-1].strftime('%Y-%m-%d')}")
+            
+            st.write("**Price Data Sample:**")
+            st.dataframe(prices[ticker_list].head(3))
+            st.write("**Price Data Types:**")
+            st.write(prices[ticker_list].dtypes)
     
-    # FIX: Ensure prices are float and calculate returns with error handling
+    # Calculate returns
     try:
         # Convert to float explicitly
         prices_clean = prices[ticker_list].astype(float)
         
         # Calculate returns
-        returns = prices_clean.pct_change()
+        returns = prices_clean.pct_change().dropna()
         
-        # Check if first row is all NaN (which is normal for pct_change)
-        st.write(f"Returns shape: {returns.shape}")
-        st.write(f"First row of returns (should be NaN):")
-        st.dataframe(returns.head(1))
+        # Debug info for returns
+        if debug_mode:
+            st.write(f"**Returns Shape:** {returns.shape}")
+            st.write("**Sample Returns:**")
+            st.dataframe(returns.head())
         
-        # Drop NaN values (first row will be dropped)
-        returns = returns.dropna()
-        
-        st.write(f"Returns after dropping NaN: {returns.shape}")
-        st.write(f"Sample of valid returns:")
-        st.dataframe(returns.head())
+        # Check if we have any returns data
+        if returns.empty or len(returns) < 5:
+            st.error(f"❌ Insufficient returns data. Only {len(returns)} valid days.")
+            if debug_mode:
+                st.write("**Attempting alternative calculation...**")
+                # Alternative calculation
+                returns_alt = pd.DataFrame()
+                for col in prices_clean.columns:
+                    returns_alt[col] = (prices_clean[col].shift(-1) - prices_clean[col]) / prices_clean[col]
+                returns_alt = returns_alt.dropna()
+                if not returns_alt.empty:
+                    returns = returns_alt
+                    st.success("Alternative calculation successful!")
+            else:
+                st.stop()
         
     except Exception as e:
         st.error(f"Error calculating returns: {str(e)}")
-        returns = pd.DataFrame()
-    
-    # FIX: Check if we have any returns data
-    if returns.empty or len(returns) < 5:
-        st.error(f"❌ CRITICAL: No valid returns data. Got {len(prices)} price days but only {len(returns)} return days.")
-        
-        # Try alternative calculation method
-        st.info("Attempting alternative return calculation method...")
-        try:
-            returns_alt = pd.DataFrame()
-            for col in prices_clean.columns:
-                # Manual percentage change calculation
-                returns_alt[col] = (prices_clean[col].shift(-1) - prices_clean[col]) / prices_clean[col]
-            
-            returns_alt = returns_alt.dropna()
-            st.write(f"Alternative returns shape: {returns_alt.shape}")
-            
-            if not returns_alt.empty and len(returns_alt) >= 5:
-                st.success("✅ Alternative calculation worked!")
-                returns = returns_alt
-            else:
-                st.error(f"❌ Alternative calculation also failed.")
-                st.info(f"""
-                **Debug Information:**
-                - Price data shape: {prices.shape}
-                - Date range: {prices.index[0].strftime('%Y-%m-%d')} to {prices.index[-1].strftime('%Y-%m-%d')}
-                - Number of trading days: {len(prices)}
-                - Price data types: {prices[ticker_list].dtypes.to_dict()}
-                - First few price values:
-                """)
-                st.dataframe(prices[ticker_list].head())
-                
-                st.info("""
-                **Immediate Fix:**
-                1. Restart the app completely
-                2. Try with just US tickers first: AAPL, MSFT, JPM
-                3. If that works, add international tickers one by one
-                4. Check if Yahoo Finance is accessible in your region
-                """)
-                st.stop()
-        except Exception as e:
-            st.error(f"Alternative calculation error: {str(e)}")
-            st.stop()
+        if debug_mode:
+            st.exception(e)
+        st.stop()
     
     # Calculate portfolio returns
     p_rets = (returns * weights_arr).sum(axis=1)
@@ -757,8 +750,8 @@ try:
 except Exception as e:
     st.error(f"🚨 Engine Execution Error: {str(e)}")
     
-    # Provide helpful debugging information
-    with st.expander("🔧 Technical Details"):
+    # Provide helpful debugging information (only expanded if debug mode is on)
+    with st.expander("🔧 Technical Details", expanded=debug_mode):
         st.code(f"Error type: {type(e).__name__}")
         import traceback
         st.code(traceback.format_exc())
@@ -771,6 +764,6 @@ except Exception as e:
     3. <strong>Yahoo Finance rate limits:</strong> Wait 1-2 minutes and try again with fewer tickers<br>
     4. <strong>Insufficient data:</strong> Using default start date 2020-01-02 which has plenty of history<br>
     5. <strong>Future dates:</strong> End date is now capped at today's date automatically<br>
-    6. <strong>Returns calculation:</strong> Added comprehensive diagnostics and alternative calculation methods
+    6. <strong>Returns calculation:</strong> Debug mode can help identify issues
     </div>
     """, unsafe_allow_html=True)
