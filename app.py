@@ -18,7 +18,6 @@ st.set_page_config(
     page_icon="📊"
 )
 
-# Custom CSS for professional styling
 st.markdown("""
 <style>
     .main-header { font-size: 2.5rem; font-weight: 700; color: #1E3A8A; margin-bottom: 0.5rem; }
@@ -32,104 +31,23 @@ st.markdown("""
 st.markdown('<div class="main-header">Asset Management & Quantitative Risk Engine</div>', unsafe_allow_html=True)
 st.caption("Advanced Portfolio Optimization with Geopolitical Risk Integration")
 
-# --- VALID START DATE FINDER FUNCTION ---
-def find_valid_start_date(tickers, target_start, debug_mode=False):
-    """Find a valid start date with data for all tickers"""
-    if not tickers:
-        return target_start
-    
-    current_date = target_start
-    max_attempts = 10
-    
-    for attempt in range(max_attempts):
-        try:
-            # Try to fetch just 5 days of data to test
-            test_end = current_date + timedelta(days=10)
-            test_data = yf.download(
-                tickers, 
-                start=current_date.strftime('%Y-%m-%d'), 
-                end=test_end.strftime('%Y-%m-%d'),
-                progress=False,
-                auto_adjust=True,
-                group_by='ticker'
-            )
-            
-            # Check if we have data for all tickers
-            if not test_data.empty:
-                valid = True
-                for t in tickers:
-                    try:
-                        if isinstance(test_data.columns, pd.MultiIndex):
-                            # MultiIndex case
-                            if t in test_data.columns.get_level_values(0):
-                                # Check if there's at least one non-null value for Close price
-                                if (t, 'Close') in test_data.columns:
-                                    if test_data[(t, 'Close')].isnull().all():
-                                        valid = False
-                                        break
-                                elif (t, 'Adj Close') in test_data.columns:
-                                    if test_data[(t, 'Adj Close')].isnull().all():
-                                        valid = False
-                                        break
-                                else:
-                                    valid = False
-                                    break
-                            else:
-                                valid = False
-                                break
-                        else:
-                            # Single ticker case
-                            if t in test_data.columns:
-                                if test_data[t].isnull().all():
-                                    valid = False
-                                    break
-                            else:
-                                valid = False
-                                break
-                    except:
-                        valid = False
-                        break
-                
-                if valid:
-                    if debug_mode:
-                        st.success(f"✅ Valid start date found: {current_date.strftime('%Y-%m-%d')}")
-                    return current_date
-            
-            # Move to next day
-            current_date = current_date + timedelta(days=1)
-            if debug_mode and attempt % 3 == 0:
-                st.info(f"Testing date: {current_date.strftime('%Y-%m-%d')}...")
-                
-        except Exception as e:
-            if debug_mode:
-                st.warning(f"Test failed for {current_date.strftime('%Y-%m-%d')}: {str(e)}")
-            current_date = current_date + timedelta(days=1)
-    
-    # Fallback to a safe date (first full week of 2020)
-    fallback_date = datetime(2020, 1, 6)
-    st.warning(f"Could not find valid start date automatically. Using fallback: {fallback_date.strftime('%Y-%m-%d')}")
-    return fallback_date
-
-# --- SIDEBAR: STRATEGIC CONTROLS ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.markdown("### Strategic Parameters")
     default_tickers = "AAPL, MSFT, JPM, MC.PA, ASML, NESN.SW"
     assets = st.text_input("Tickers (comma-separated)", default_tickers)
     ticker_list = [t.strip().upper() for t in assets.split(",") if t.strip()]
-    
-    # Use a safe default date
-    default_start = datetime(2020, 1, 2)  # Will be auto-adjusted if needed
+
+    default_start = datetime(2020, 1, 2)
     start_date = st.date_input("Analysis Start", value=default_start)
-    
-    # ADDED: End date control to prevent future date issues
     default_end = datetime.now()
     end_date = st.date_input("Analysis End", value=default_end, max_value=default_end)
-    
+
     st.divider()
     st.markdown("### Geopolitical Risk Overlay")
     geo_events = st.multiselect(
         "Active Events",
-        ["US-China Tech Tensions", "EU Regulation Shift", "Middle East Instability", 
+        ["US-China Tech Tensions", "EU Regulation Shift", "Middle East Instability",
          "Supply Chain Disruption", "Currency Volatility", "Trade Policy Changes"],
         default=["US-China Tech Tensions"]
     )
@@ -138,756 +56,380 @@ with st.sidebar:
     st.divider()
     st.markdown("### Black-Litterman View")
     view_ticker = st.selectbox("Asset for View", ticker_list if ticker_list else ["AAPL"])
-    view_return = st.slider(f"Expected Return (%)", -20, 40, 10) / 100
+    view_return = st.slider("Expected Return (%)", -20, 40, 10) / 100
     view_conf = st.slider("View Confidence (%)", 10, 100, 50) / 100
 
     st.divider()
     st.markdown("### Compliance & Risk")
     max_cap = st.slider("Max Weight per Stock (%)", 10, 100, 35) / 100
     div_penalty = st.slider("Diversification (L2) Penalty", 0.0, 2.0, 0.5)
-    
-    # --- DEBUG MODE ---
+
     st.divider()
     st.markdown("### Developer Settings")
-    debug_mode = st.checkbox("Show Debug Information", value=False, help="Enable to see detailed data diagnostics")
+    debug_mode = st.checkbox("Show Debug Information", value=False)
 
-# --- RE-ENGINEERED DATA FETCHING WITH FIXED DATE HANDLING ---
+
+# --- DATA FETCHING ---
 @st.cache_data(ttl=3600)
-def get_clean_data(tickers, start, end):
-    """Robust data fetching with fallback mechanisms and proper date handling"""
-    if not tickers:
-        return pd.DataFrame(), pd.Series(), {}
-    
-    # FIX: Validate and convert dates properly
+def get_clean_data(tickers, start, end, debug=False):
     today_str = datetime.now().strftime('%Y-%m-%d')
-    
-    # Handle start date
-    if hasattr(start, 'strftime'):
-        start_str = start.strftime('%Y-%m-%d')
-    elif isinstance(start, str):
-        start_str = start
-    else:
-        start_str = '2020-01-06'
-        if debug_mode:
-            st.warning(f"Date format issue. Using default start date: {start_str}")
-    
-    # Handle end date
-    if hasattr(end, 'strftime'):
-        end_str = end.strftime('%Y-%m-%d')
-    elif isinstance(end, str):
-        end_str = end
-    else:
-        end_str = today_str
-    
-    # Ensure we're not using future dates
-    if start_str > today_str:
-        start_str = '2020-01-06'
-        if debug_mode:
-            st.warning(f"Start date is in the future. Using default: {start_str}")
-    
-    if end_str > today_str:
-        end_str = today_str
-        if debug_mode:
-            st.warning(f"End date is in the future. Using today: {end_str}")
-    
-    # Ensure start is before end
+
+    start_str = start.strftime('%Y-%m-%d') if hasattr(start, 'strftime') else str(start)
+    end_str   = end.strftime('%Y-%m-%d')   if hasattr(end,   'strftime') else str(end)
+
+    if start_str > today_str: start_str = '2020-01-06'
+    if end_str   > today_str: end_str   = today_str
     if start_str >= end_str:
         start_str = '2020-01-06'
-        end_str = today_str
-        if debug_mode:
-            st.warning(f"Start date must be before end date. Using default range.")
-    
-    # Ensure unique tickers
-    all_tickers = list(set(tickers + ["^GSPC"]))
-    
-    close_prices = pd.DataFrame()
-    failed_tickers = []
-    
-    try:
-        # Try bulk download first with proper date range
-        raw_data = yf.download(
-            all_tickers, 
-            start=start_str, 
-            end=end_str,
-            progress=False, 
-            group_by='ticker',
-            auto_adjust=True
-        )
-        time.sleep(1)  # Rate limit protection
-        
-        # Extract close prices from the downloaded data
-        for t in all_tickers:
+        end_str   = today_str
+
+    all_tickers = list(dict.fromkeys(tickers + ["^GSPC"]))   # preserve order, no dupes
+
+    # ── individual downloads (most reliable) ──────────────────────────────
+    close_prices = {}
+    for t in all_tickers:
+        for attempt in range(3):
             try:
-                if isinstance(raw_data.columns, pd.MultiIndex):
-                    # MultiIndex case
-                    if (t, 'Close') in raw_data.columns:
-                        close_prices[t] = raw_data[(t, 'Close')]
-                    elif (t, 'Adj Close') in raw_data.columns:
-                        close_prices[t] = raw_data[(t, 'Adj Close')]
-                else:
-                    # Single ticker case
-                    if 'Close' in raw_data.columns:
-                        close_prices[t] = raw_data['Close']
-                    elif 'Adj Close' in raw_data.columns:
-                        close_prices[t] = raw_data['Adj Close']
+                raw = yf.download(t, start=start_str, end=end_str,
+                                  progress=False, auto_adjust=True)
+                time.sleep(0.3)
+                if raw.empty:
+                    continue
+                col = 'Close' if 'Close' in raw.columns else (
+                      'Adj Close' if 'Adj Close' in raw.columns else None)
+                if col:
+                    series = pd.to_numeric(raw[col].squeeze(), errors='coerce').dropna()
+                    if len(series) > 5:
+                        close_prices[t] = series
+                        break
             except Exception as e:
-                failed_tickers.append((t, str(e)))
-        
-        # Fallback for failed tickers - download individually
-        for t, error in failed_tickers:
-            try:
-                ticker_data = yf.download(
-                    t, 
-                    start=start_str, 
-                    end=end_str,
-                    progress=False,
-                    auto_adjust=True
-                )
-                if not ticker_data.empty:
-                    if 'Close' in ticker_data.columns:
-                        close_prices[t] = ticker_data['Close']
-                    elif 'Adj Close' in ticker_data.columns:
-                        close_prices[t] = ticker_data['Adj Close']
+                if debug:
+                    st.warning(f"Attempt {attempt+1} failed for {t}: {e}")
                 time.sleep(0.5)
-            except Exception as e:
-                if debug_mode:
-                    st.warning(f"Failed to download {t}: {str(e)}")
-                continue
-        
-        if close_prices.empty:
-            st.error("❌ No data could be fetched for any ticker. Please check internet connection and try again.")
-            return pd.DataFrame(), pd.Series(), {}
-        
-        # Check if we have any data
-        if close_prices.shape[0] == 0:
-            st.error("❌ Data fetched but contains no rows. Try a different start date.")
-            return pd.DataFrame(), pd.Series(), {}
-            
-        # Clean data - forward fill and drop any remaining NaNs
-        clean_df = close_prices.ffill().bfill().dropna(how='all')
-        
-        # FIX: Ensure all price data is numeric
-        for col in clean_df.columns:
-            clean_df[col] = pd.to_numeric(clean_df[col], errors='coerce')
-        
-        # Drop any columns that became all NaN
-        clean_df = clean_df.dropna(axis=1, how='all')
-        
-        # FIX: Ensure index is datetime
-        if not isinstance(clean_df.index, pd.DatetimeIndex):
-            clean_df.index = pd.to_datetime(clean_df.index)
-        
-        # Check if cleaning removed all data
-        if clean_df.empty or clean_df.shape[0] < 5:
-            st.error(f"❌ Insufficient data after cleaning. Only {clean_df.shape[0]} rows available.")
-            return pd.DataFrame(), pd.Series(), {}
-            
-        # Separate benchmark and assets
-        benchmark = pd.Series()
-        if "^GSPC" in clean_df.columns:
-            benchmark = clean_df["^GSPC"]
-            assets_data = clean_df.drop(columns=["^GSPC"])
-        else:
-            assets_data = clean_df
-        
-        # Static Market Cap Estimates (in USD billions)
-        fixed_caps = {
-            'AAPL': 3000, 'MSFT': 2800, 'JPM': 500, 'MC.PA': 400, 
-            'ASML': 350, 'NESN.SW': 300, 'GOOGL': 1800, 'AMZN': 1600,
-            'TSLA': 600, 'NVDA': 2200, 'V': 500, 'JNJ': 380,
-            'XOM': 400, 'WMT': 450, 'PG': 350, 'MA': 400
-        }
-        
-        # CRITICAL FIX: Only create market caps for tickers that actually exist in assets_data
-        mcaps = {}
-        for t in tickers:
-            if t in assets_data.columns:
-                # Convert billions to actual value for Black-Litterman
-                mcaps[t] = fixed_caps.get(t, 100) * 1e9
-            else:
-                # Don't add market caps for tickers that don't exist
-                if debug_mode:
-                    st.warning(f"Ticker {t} not found in data, skipping market cap")
-                continue
-        
-        # If we have no market caps, use defaults for existing tickers
-        if not mcaps:
-            for t in assets_data.columns:
-                mcaps[t] = 1e11  # Default $100B market cap
-        
-        # Debug info
-        st.success(f"✅ Successfully fetched data for {len(assets_data.columns)} tickers with {len(assets_data)} days of data")
-        st.info(f"📅 Date range: {assets_data.index[0].strftime('%Y-%m-%d')} to {assets_data.index[-1].strftime('%Y-%m-%d')}")
-        
-        return assets_data, benchmark, mcaps
-        
-    except Exception as e:
-        st.error(f"❌ Data fetch error: {str(e)}")
-        if debug_mode:
-            import traceback
-            st.code(traceback.format_exc())
+
+    if not close_prices:
         return pd.DataFrame(), pd.Series(), {}
 
-# --- OPTIMIZATION LOGIC ---
-def apply_geopolitical_overlay(weights, tickers, events, intensity):
-    """Apply geopolitical risk adjustments to portfolio weights"""
+    df = pd.DataFrame(close_prices)
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index)
+    df = df.ffill().bfill().dropna(how='all')
+
+    benchmark = df.pop("^GSPC") if "^GSPC" in df.columns else pd.Series()
+    assets_df = df.dropna(axis=1, how='all')
+
+    if assets_df.empty or len(assets_df) < 10:
+        return pd.DataFrame(), pd.Series(), {}
+
+    fixed_caps = {
+        'AAPL': 3000, 'MSFT': 2800, 'JPM': 500, 'MC.PA': 400,
+        'ASML': 350,  'NESN.SW': 300, 'GOOGL': 1800, 'AMZN': 1600,
+        'TSLA': 600,  'NVDA': 2200,  'V': 500,  'JNJ': 380,
+        'XOM': 400,   'WMT': 450,    'PG': 350,  'MA': 400
+    }
+    mcaps = {t: fixed_caps.get(t, 100) * 1e9 for t in assets_df.columns}
+
+    return assets_df, benchmark, mcaps
+
+
+# --- GEOPOLITICAL OVERLAY ---
+def apply_geopolitical_overlay(weights, events, intensity):
     if not events or intensity <= 0.5:
         return weights
-    
-    # Sector risk exposure mapping
     sector_risk = {
-        'Technology': {'US-China Tech Tensions': 0.8, 'Supply Chain Disruption': 0.7, 'Trade Policy Changes': 0.6},
-        'Financials': {'Currency Volatility': 0.6, 'Middle East Instability': 0.3, 'Trade Policy Changes': 0.4},
-        'Semiconductors': {'US-China Tech Tensions': 0.9, 'Supply Chain Disruption': 0.8, 'Trade Policy Changes': 0.7},
-        'Healthcare': {'EU Regulation Shift': 0.5, 'Trade Policy Changes': 0.3},
-        'Automotive': {'Supply Chain Disruption': 0.9, 'Trade Policy Changes': 0.7},
-        'Consumer': {'Supply Chain Disruption': 0.5, 'Currency Volatility': 0.3},
-        'Energy': {'Middle East Instability': 0.8, 'Trade Policy Changes': 0.6}
+        'Technology':    {'US-China Tech Tensions': 0.8, 'Supply Chain Disruption': 0.7, 'Trade Policy Changes': 0.6},
+        'Financials':    {'Currency Volatility': 0.6, 'Middle East Instability': 0.3, 'Trade Policy Changes': 0.4},
+        'Semiconductors':{'US-China Tech Tensions': 0.9, 'Supply Chain Disruption': 0.8, 'Trade Policy Changes': 0.7},
+        'Healthcare':    {'EU Regulation Shift': 0.5, 'Trade Policy Changes': 0.3},
+        'Automotive':    {'Supply Chain Disruption': 0.9, 'Trade Policy Changes': 0.7},
+        'Consumer':      {'Supply Chain Disruption': 0.5, 'Currency Volatility': 0.3},
+        'Energy':        {'Middle East Instability': 0.8, 'Trade Policy Changes': 0.6},
     }
-    
-    # Ticker to sector mapping
     ticker_sectors = {
-        'AAPL': 'Technology', 'MSFT': 'Technology', 'JPM': 'Financials',
-        'MC.PA': 'Consumer', 'ASML': 'Semiconductors', 'NESN.SW': 'Healthcare',
-        'GOOGL': 'Technology', 'AMZN': 'Technology', 'TSLA': 'Automotive',
-        'NVDA': 'Semiconductors', 'V': 'Financials', 'JNJ': 'Healthcare',
-        'XOM': 'Energy', 'WMT': 'Consumer', 'PG': 'Consumer', 'MA': 'Financials'
+        'AAPL':'Technology','MSFT':'Technology','JPM':'Financials',
+        'MC.PA':'Consumer','ASML':'Semiconductors','NESN.SW':'Healthcare',
+        'GOOGL':'Technology','AMZN':'Technology','TSLA':'Automotive',
+        'NVDA':'Semiconductors','V':'Financials','JNJ':'Healthcare',
+        'XOM':'Energy','WMT':'Consumer','PG':'Consumer','MA':'Financials',
     }
-    
-    adjustments = {}
-    for ticker, weight in weights.items():
-        if weight == 0:
-            adjustments[ticker] = 0
-            continue
-            
+    adj = {}
+    for ticker, w in weights.items():
+        if w == 0:
+            adj[ticker] = 0; continue
         sector = ticker_sectors.get(ticker, 'Technology')
-        # Calculate total risk exposure for this ticker
-        risk_score = 0
-        for event in events:
-            risk_score += sector_risk.get(sector, {}).get(event, 0.1)
-        
-        # Adjust weight based on risk (higher risk = lower weight)
-        reduction_factor = 1 - (risk_score * intensity * 0.15)
-        adjustments[ticker] = max(0.01, weight * reduction_factor)
-    
-    # Re-normalize to ensure weights sum to 1
-    total = sum(adjustments.values())
-    if total > 0:
-        return {k: v/total for k, v in adjustments.items()}
-    return weights
+        risk_score = sum(sector_risk.get(sector, {}).get(e, 0.1) for e in events)
+        adj[ticker] = max(0.01, w * (1 - risk_score * intensity * 0.15))
+    total = sum(adj.values())
+    return {k: v / total for k, v in adj.items()} if total > 0 else weights
 
-# --- EFFICIENT FRONTIER PLOT FUNCTION ---
-def plot_efficient_frontier(mu, S, risk_free_rate=0.02):
-    """Generate efficient frontier plot"""
+
+# --- EFFICIENT FRONTIER ---
+def plot_efficient_frontier(mu, S, rf=0.02):
     try:
-        # Generate portfolio statistics
         ef = EfficientFrontier(mu, S)
         ef.min_volatility()
-        min_vol = ef.portfolio_performance(risk_free_rate=risk_free_rate)
-        
+        min_vol = ef.portfolio_performance(risk_free_rate=rf)
+
         ef = EfficientFrontier(mu, S)
         ef.max_sharpe()
-        max_sharpe = ef.portfolio_performance(risk_free_rate=risk_free_rate)
-        
-        # Generate frontier points
-        target_returns = np.linspace(min_vol[0], max(mu), 20)
-        volatilities = []
-        for target in target_returns:
-            ef = EfficientFrontier(mu, S)
+        max_sharpe = ef.portfolio_performance(risk_free_rate=rf)
+
+        target_returns = np.linspace(min_vol[0], float(mu.max()), 20)
+        vols = []
+        for tr in target_returns:
             try:
-                ef.efficient_return(target_return=target)
-                _, vol, _ = ef.portfolio_performance(risk_free_rate=risk_free_rate)
-                volatilities.append(vol)
+                ef2 = EfficientFrontier(mu, S)
+                ef2.efficient_return(target_return=tr)
+                _, v, _ = ef2.portfolio_performance(risk_free_rate=rf)
+                vols.append(v)
             except:
-                volatilities.append(np.nan)
-        
-        # Create plot
+                vols.append(np.nan)
+
         fig = go.Figure()
-        
-        # Efficient frontier line
-        fig.add_trace(go.Scatter(
-            x=volatilities, y=target_returns,
-            mode='lines',
-            name='Efficient Frontier',
-            line=dict(color='#3B82F6', width=3)
-        ))
-        
-        # Individual assets
-        fig.add_trace(go.Scatter(
-            x=np.sqrt(np.diag(S * 252)), y=mu,
-            mode='markers+text',
-            name='Assets',
-            marker=dict(size=12, color='#EF4444'),
-            text=list(S.columns),
-            textposition="top center"
-        ))
-        
-        # Min volatility portfolio
-        fig.add_trace(go.Scatter(
-            x=[min_vol[1]], y=[min_vol[0]],
-            mode='markers',
-            name='Min Volatility',
-            marker=dict(size=15, color='#10B981', symbol='diamond')
-        ))
-        
-        # Max Sharpe portfolio
-        fig.add_trace(go.Scatter(
-            x=[max_sharpe[1]], y=[max_sharpe[0]],
-            mode='markers',
-            name='Max Sharpe',
-            marker=dict(size=15, color='#F59E0B', symbol='star')
-        ))
-        
-        fig.update_layout(
-            title="Efficient Frontier",
-            xaxis_title="Annual Volatility",
-            yaxis_title="Expected Annual Return",
-            template="plotly_white",
-            height=500,
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
-            )
-        )
-        
+        fig.add_trace(go.Scatter(x=vols, y=target_returns, mode='lines',
+                                  name='Efficient Frontier',
+                                  line=dict(color='#3B82F6', width=3)))
+        fig.add_trace(go.Scatter(x=np.sqrt(np.diag(S.values) * 252), y=mu,
+                                  mode='markers+text', name='Assets',
+                                  marker=dict(size=12, color='#EF4444'),
+                                  text=list(S.columns), textposition="top center"))
+        fig.add_trace(go.Scatter(x=[min_vol[1]], y=[min_vol[0]], mode='markers',
+                                  name='Min Volatility',
+                                  marker=dict(size=15, color='#10B981', symbol='diamond')))
+        fig.add_trace(go.Scatter(x=[max_sharpe[1]], y=[max_sharpe[0]], mode='markers',
+                                  name='Max Sharpe',
+                                  marker=dict(size=15, color='#F59E0B', symbol='star')))
+        fig.update_layout(title="Efficient Frontier", xaxis_title="Annual Volatility",
+                          yaxis_title="Expected Annual Return", template="plotly_white",
+                          height=500, showlegend=True,
+                          legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                      xanchor="right", x=1))
         return fig
-        
     except Exception as e:
         if debug_mode:
-            st.warning(f"Could not generate efficient frontier: {str(e)}")
+            st.warning(f"Efficient frontier error: {e}")
         return None
 
-# --- MAIN EXECUTION ---
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MAIN EXECUTION
+# ═══════════════════════════════════════════════════════════════════════════════
 try:
     if not ticker_list:
         st.info("👈 Please enter ticker symbols in the sidebar to begin analysis.")
         st.stop()
-    
-    # AUTO-FIX: Find a valid start date for all tickers
-    original_start = start_date
-    valid_start = find_valid_start_date(ticker_list, start_date, debug_mode)
-    
-    if valid_start != original_start:
-        st.info(f"📅 Adjusted start date from {original_start.strftime('%Y-%m-%d')} to {valid_start.strftime('%Y-%m-%d')} for optimal data availability")
-        start_date = valid_start
-    
-    # Display current parameters
+
     with st.expander("📋 Current Parameters", expanded=False):
         st.write(f"**Tickers:** {', '.join(ticker_list)}")
-        st.write(f"**Start Date:** {start_date}")
-        st.write(f"**End Date:** {end_date}")
-        st.write(f"**View Asset:** {view_ticker} with {view_return:.1%} expected return")
-        st.write(f"**View Confidence:** {view_conf:.0%}")
-        st.write(f"**Geopolitical Events:** {', '.join(geo_events) if geo_events else 'None'}")
-        st.write(f"**Risk Intensity:** {geo_intensity:.1f}x")
-        st.write(f"**Debug Mode:** {'Enabled' if debug_mode else 'Disabled'}")
-    
-    with st.spinner("📊 Fetching market data and optimizing portfolio..."):
-        prices, bench_prices, market_caps = get_clean_data(ticker_list, start_date, end_date)
-    
+        st.write(f"**Start Date:** {start_date}  |  **End Date:** {end_date}")
+        st.write(f"**View:** {view_ticker} @ {view_return:.1%} (conf {view_conf:.0%})")
+        st.write(f"**Geo events:** {', '.join(geo_events) or 'None'}  |  Intensity {geo_intensity:.1f}x")
+
+    with st.spinner("📊 Fetching market data…"):
+        prices, bench_prices, market_caps = get_clean_data(
+            ticker_list, start_date, end_date, debug=debug_mode)
+
     if prices.empty:
-        st.error("""
-        ❌ **No data available for the selected tickers.** 
-        
-        **Possible reasons:**
-        1. **Incorrect ticker format** - Make sure international stocks have exchange codes (e.g., `MC.PA` for LVMH Paris)
-        2. **Start date is too recent** - Try an earlier date like 2020-01-01
-        3. **End date is in the future** - The system now auto-fixes this
-        4. **Yahoo Finance rate limits** - Wait 60 seconds and refresh
-        5. **Network issues** - Check your internet connection
-        
-        **Current default tickers should work:** AAPL, MSFT, JPM, MC.PA, ASML, NESN.SW
-        """)
+        st.error("❌ No data available. Check ticker symbols and date range.")
         st.stop()
-    
-    # Ensure we only work with tickers that have data
-    available_tickers = [t for t in ticker_list if t in prices.columns]
-    if not available_tickers:
+
+    # reconcile ticker_list to what actually loaded
+    available = [t for t in ticker_list if t in prices.columns]
+    missing   = set(ticker_list) - set(available)
+    if missing:
+        st.warning(f"⚠️ Tickers not found: {', '.join(sorted(missing))}")
+    if not available:
         st.error("❌ None of the entered tickers returned valid data.")
         st.stop()
-    
-    if len(available_tickers) != len(ticker_list):
-        missing = set(ticker_list) - set(available_tickers)
-        st.warning(f"⚠️ Some tickers were not found: {', '.join(missing)}")
-        st.info(f"✅ Proceeding with available tickers: {', '.join(available_tickers)}")
-    
-    ticker_list = available_tickers
-    
-    # --- OPTIMIZATION PROCESS ---
-    
-    # 1. Calculate covariance matrix with shrinkage
+
+    ticker_list = available                      # authoritative list from here on
+    prices      = prices[ticker_list]
+    market_caps = {t: market_caps[t] for t in ticker_list if t in market_caps}
+
+    st.success(f"✅ Data loaded: {len(ticker_list)} tickers, {len(prices)} trading days")
+    st.info(f"📅 {prices.index[0].date()} → {prices.index[-1].date()}")
+
+    # ── adjust view_ticker if it was dropped ──────────────────────────────
+    if view_ticker not in ticker_list:
+        view_ticker = ticker_list[0]
+        st.info(f"View asset adjusted to: {view_ticker}")
+
+    # ── covariance matrix ─────────────────────────────────────────────────
     try:
-        S = risk_models.CovarianceShrinkage(prices[ticker_list]).ledoit_wolf()
-    except Exception as e:
-        if debug_mode:
-            st.warning(f"Using sample covariance matrix: {str(e)}")
-        S = risk_models.sample_cov(prices[ticker_list])
-    
-    delta = 2.5  # Risk aversion coefficient
-    
-    # 2. Black-Litterman Optimization - FIXED WITH ALIGNMENT
+        S = risk_models.CovarianceShrinkage(prices).ledoit_wolf()
+    except Exception:
+        S = risk_models.sample_cov(prices)
+
+    # S.columns is now the ground truth — keep everything aligned to it
+    tickers_final = list(S.columns)
+
+    # ── Black-Litterman ───────────────────────────────────────────────────
     try:
-        # CRITICAL FIX: Ensure market caps only include tickers in the covariance matrix
-        available_tickers_caps = {t: market_caps.get(t, 1e11) for t in ticker_list if t in market_caps}
-        
-        # Check if we have market caps for all current tickers
-        missing_caps = set(ticker_list) - set(available_tickers_caps.keys())
-        if missing_caps:
-            if debug_mode:
-                st.warning(f"Missing market caps for: {missing_caps}. Using default values.")
-            for t in missing_caps:
-                available_tickers_caps[t] = 1e11  # Default $100B market cap
-        
-        # Create market cap series that matches the covariance matrix order
-        market_caps_aligned = pd.Series(available_tickers_caps)
-        
-        # Market-implied prior returns
-        prior_rets = black_litterman.market_implied_prior_returns(market_caps_aligned, delta, S)
-        
-        # Ensure view ticker is available
-        if view_ticker not in ticker_list:
-            view_ticker = ticker_list[0]
-            st.info(f"View ticker adjusted to: {view_ticker}")
-        
-        # Create Black-Litterman model
+        # market caps aligned EXACTLY to S.columns order
+        mcap_series = pd.Series(
+            {t: market_caps.get(t, 1e11) for t in tickers_final},
+            index=tickers_final
+        )
+
+        prior_rets = black_litterman.market_implied_prior_returns(
+            mcap_series, 2.5, S)
+
+        # sanity-check alignment
+        assert list(prior_rets.index) == tickers_final, "prior_rets misaligned"
+
         bl = black_litterman.BlackLittermanModel(
-            S, 
-            pi=prior_rets, 
+            S,
+            pi=prior_rets,
             absolute_views={view_ticker: view_return},
             omega="idzorek",
             view_confidences=[min(view_conf, 0.99)]
         )
         bl_mu = bl.bl_returns()
-        
-        if debug_mode:
-            st.success("✅ Black-Litterman optimization successful!")
-        
+        # ensure bl_mu is also aligned
+        bl_mu = bl_mu.reindex(tickers_final)
+
     except Exception as e:
-        st.warning(f"⚠️ Black-Litterman optimization failed. Using historical returns: {str(e)}")
-        if debug_mode:
-            st.write("**Debug Info:**")
-            st.write(f"Ticker list: {ticker_list}")
-            st.write(f"Market caps keys: {list(market_caps.keys())}")
-            st.write(f"Covariance matrix shape: {S.shape}")
-            st.write(f"Covariance matrix columns: {list(S.columns)}")
-        
-        # Fallback to historical mean returns
-        returns_for_mu = prices[ticker_list].pct_change().dropna()
-        if not returns_for_mu.empty:
-            historical_returns = returns_for_mu.mean() * 252
-            bl_mu = historical_returns
-        else:
-            # Fallback to equal expected returns
-            bl_mu = pd.Series(0.10, index=ticker_list)  # 10% expected return for all
-    
-    # 3. Mean-Variance Optimization
+        st.warning(f"⚠️ Black-Litterman failed ({e}). Falling back to historical returns.")
+        returns_tmp = prices.pct_change().dropna()
+        bl_mu = (returns_tmp.mean() * 252).reindex(tickers_final)
+        if bl_mu.isna().any():
+            bl_mu = bl_mu.fillna(0.10)
+
+    # ── Mean-Variance optimisation ────────────────────────────────────────
     try:
         ef = EfficientFrontier(bl_mu, S, weight_bounds=(0, max_cap))
         ef.add_objective(objective_functions.L2_reg, gamma=div_penalty)
-        raw_weights = ef.max_sharpe()
+        ef.max_sharpe()
         optimized_weights = ef.clean_weights()
-        
-        # Check if optimization produced valid weights
-        total_weight = sum(optimized_weights.values())
-        if abs(total_weight - 1.0) > 0.01:
-            st.warning(f"Weights sum to {total_weight:.2%}, normalizing to 100%")
-            optimized_weights = {k: v/total_weight for k, v in optimized_weights.items()}
-            
+        if abs(sum(optimized_weights.values()) - 1.0) > 0.01:
+            total = sum(optimized_weights.values())
+            optimized_weights = {k: v / total for k, v in optimized_weights.items()}
     except Exception as e:
-        st.error(f"❌ Portfolio optimization failed: {str(e)}")
-        # Equal weight fallback
-        optimized_weights = {t: 1/len(ticker_list) for t in ticker_list}
-        st.info("Using equal weights as fallback")
-    
-    # 4. Apply Geopolitical Overlay
-    if geo_events and geo_intensity > 0.5:
-        final_weights = apply_geopolitical_overlay(optimized_weights, ticker_list, geo_events, geo_intensity)
-    else:
-        final_weights = optimized_weights
-    
-    # 5. Calculate Portfolio Performance
-    weights_arr = np.array([final_weights.get(t, 0) for t in ticker_list])
-    
-    # FIX: Check if we have enough price data
-    if len(prices) < 2:
-        st.error(f"❌ Insufficient data: only {len(prices)} day(s) of data. Need at least 2 days to calculate returns.")
-        st.info("Try an earlier start date or later end date.")
+        st.error(f"❌ Optimisation failed: {e}")
+        optimized_weights = {t: 1 / len(tickers_final) for t in tickers_final}
+        st.info("Using equal weights as fallback.")
+
+    # ── Geopolitical overlay ──────────────────────────────────────────────
+    final_weights = (apply_geopolitical_overlay(optimized_weights, geo_events, geo_intensity)
+                     if geo_events and geo_intensity > 0.5 else optimized_weights)
+
+    # ── Performance metrics ───────────────────────────────────────────────
+    weights_arr = np.array([final_weights.get(t, 0) for t in tickers_final])
+    returns     = prices.pct_change().dropna().astype(float)
+
+    if len(returns) < 5:
+        st.error("❌ Not enough return data to compute metrics.")
         st.stop()
-    
-    # Only show diagnostics if debug mode is enabled
-    if debug_mode:
-        with st.expander("🔍 Debug Information", expanded=False):
-            st.write("### Data Quality Metrics")
-            col_d1, col_d2, col_d3 = st.columns(3)
-            with col_d1:
-                st.metric("Price Days", len(prices))
-            with col_d2:
-                st.metric("Tickers", len(ticker_list))
-            with col_d3:
-                st.metric("Date Range", f"{prices.index[0].strftime('%Y-%m-%d')} to {prices.index[-1].strftime('%Y-%m-%d')}")
-            
-            st.write("**Price Data Sample:**")
-            st.dataframe(prices[ticker_list].head(3))
-            st.write("**Price Data Types:**")
-            st.write(prices[ticker_list].dtypes)
-    
-    # Calculate returns
-    try:
-        # Convert to float explicitly
-        prices_clean = prices[ticker_list].astype(float)
-        
-        # Calculate returns
-        returns = prices_clean.pct_change().dropna()
-        
-        # Debug info for returns
-        if debug_mode:
-            st.write(f"**Returns Shape:** {returns.shape}")
-            st.write("**Sample Returns:**")
-            st.dataframe(returns.head())
-        
-        # Check if we have any returns data
-        if returns.empty or len(returns) < 5:
-            st.error(f"❌ Insufficient returns data. Only {len(returns)} valid days.")
-            if debug_mode:
-                st.write("**Attempting alternative calculation...**")
-                # Alternative calculation
-                returns_alt = pd.DataFrame()
-                for col in prices_clean.columns:
-                    returns_alt[col] = (prices_clean[col].shift(-1) - prices_clean[col]) / prices_clean[col]
-                returns_alt = returns_alt.dropna()
-                if not returns_alt.empty:
-                    returns = returns_alt
-                    st.success("Alternative calculation successful!")
-            else:
-                st.stop()
-        
-    except Exception as e:
-        st.error(f"Error calculating returns: {str(e)}")
-        if debug_mode:
-            st.exception(e)
-        st.stop()
-    
-    # Calculate portfolio returns
+
     p_rets = (returns * weights_arr).sum(axis=1)
-    p_cum = (1 + p_rets).cumprod()
-    
-    # Performance metrics
+    p_cum  = (1 + p_rets).cumprod()
+
     ann_ret = p_rets.mean() * 252
-    ann_vol = p_rets.std() * np.sqrt(252)
-    sharpe = ann_ret / ann_vol if ann_vol > 0 else 0
-    
-    # Calculate maximum drawdown
+    ann_vol = p_rets.std()  * np.sqrt(252)
+    sharpe  = ann_ret / ann_vol if ann_vol > 0 else 0
+
     rolling_max = p_cum.expanding().max()
-    daily_drawdown = (p_cum - rolling_max) / rolling_max
-    max_dd = daily_drawdown.min()
-    
-    # Sortino ratio (only downside volatility)
-    downside_returns = p_rets[p_rets < 0]
-    downside_vol = downside_returns.std() * np.sqrt(252) if len(downside_returns) > 0 else 0
-    sortino = ann_ret / downside_vol if downside_vol > 0 else 0
-    
-    # --- DISPLAY RESULTS ---
-    
-    # Performance Metrics
+    max_dd      = ((p_cum - rolling_max) / rolling_max).min()
+
+    down_vol = p_rets[p_rets < 0].std() * np.sqrt(252)
+    sortino  = ann_ret / down_vol if down_vol > 0 else 0
+
+    # ── Display ───────────────────────────────────────────────────────────
     st.markdown('<div class="sub-header">Portfolio Performance</div>', unsafe_allow_html=True)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown(f'<div class="metric-card">Sharpe Ratio<br><h3>{sharpe:.2f}</h3></div>', unsafe_allow_html=True)
-    with col2:
-        st.markdown(f'<div class="metric-card">Annual Return<br><h3>{ann_ret:.1%}</h3></div>', unsafe_allow_html=True)
-    with col3:
-        st.markdown(f'<div class="metric-card">Annual Volatility<br><h3>{ann_vol:.1%}</h3></div>', unsafe_allow_html=True)
-    with col4:
-        st.markdown(f'<div class="metric-card">Max Drawdown<br><h3>{max_dd:.1%}</h3></div>', unsafe_allow_html=True)
-    
-    # Efficient Frontier Plot
+    c1, c2, c3, c4 = st.columns(4)
+    for col, label, val in zip(
+        [c1, c2, c3, c4],
+        ["Sharpe Ratio", "Annual Return", "Annual Volatility", "Max Drawdown"],
+        [f"{sharpe:.2f}", f"{ann_ret:.1%}", f"{ann_vol:.1%}", f"{max_dd:.1%}"]
+    ):
+        col.markdown(f'<div class="metric-card">{label}<br><h3>{val}</h3></div>',
+                     unsafe_allow_html=True)
+
     st.markdown('<div class="sub-header">Efficient Frontier</div>', unsafe_allow_html=True)
-    frontier_fig = plot_efficient_frontier(bl_mu, S)
-    if frontier_fig:
-        st.plotly_chart(frontier_fig, use_container_width=True)
-    else:
-        st.info("Efficient frontier plot could not be generated with current data.")
-    
-    # Portfolio Allocation
+    fig_ef = plot_efficient_frontier(bl_mu, S)
+    if fig_ef:
+        st.plotly_chart(fig_ef, use_container_width=True)
+
     st.markdown('<div class="sub-header">Portfolio Allocation</div>', unsafe_allow_html=True)
-    
-    col_alloc1, col_alloc2 = st.columns([2, 1])
-    
-    with col_alloc1:
-        # Pie chart
+    col_a, col_b = st.columns([2, 1])
+    with col_a:
         w_df = pd.DataFrame.from_dict(final_weights, orient='index', columns=['Weight'])
         w_df = w_df[w_df['Weight'] > 0.001]
-        
         if not w_df.empty:
-            fig_alloc = px.pie(
-                names=w_df.index, 
-                values=w_df['Weight'],
-                hole=0.4,
-                color_discrete_sequence=px.colors.qualitative.Prism,
-                title="Portfolio Weights"
-            )
-            fig_alloc.update_layout(showlegend=True, height=400)
-            st.plotly_chart(fig_alloc, use_container_width=True)
-        else:
-            st.info("No significant allocations found.")
-    
-    with col_alloc2:
-        # Weight table
+            fig_pie = px.pie(names=w_df.index, values=w_df['Weight'], hole=0.4,
+                             color_discrete_sequence=px.colors.qualitative.Prism,
+                             title="Portfolio Weights")
+            fig_pie.update_layout(height=400)
+            st.plotly_chart(fig_pie, use_container_width=True)
+    with col_b:
         st.markdown("**Detailed Weights**")
-        weight_table = pd.DataFrame({
-            'Ticker': list(final_weights.keys()),
-            'Weight': [f"{w:.2%}" for w in final_weights.values()]
-        }).sort_values('Weight', ascending=False)
-        st.dataframe(weight_table, use_container_width=True, hide_index=True)
-        
-        # Geopolitical impact summary
+        wt = pd.DataFrame({'Ticker': list(final_weights.keys()),
+                           'Weight': [f"{v:.2%}" for v in final_weights.values()]}
+                          ).sort_values('Weight', ascending=False)
+        st.dataframe(wt, use_container_width=True, hide_index=True)
         if geo_events and geo_intensity > 0.5:
-            st.markdown("**Geopolitical Impact**")
-            st.info(f"Applied risk overlay for {len(geo_events)} event(s) at intensity {geo_intensity:.1f}x")
-    
-    # Performance Chart
+            st.info(f"Geo overlay: {len(geo_events)} event(s) @ {geo_intensity:.1f}x")
+
     st.markdown('<div class="sub-header">Performance Comparison</div>', unsafe_allow_html=True)
-    
     fig_perf = go.Figure()
-    
-    # Portfolio performance
-    fig_perf.add_trace(go.Scatter(
-        x=p_cum.index, 
-        y=p_cum, 
-        name="Optimized Portfolio", 
-        line=dict(color='#1E3A8A', width=3),
-        fill='tozeroy',
-        fillcolor='rgba(30, 58, 138, 0.1)'
-    ))
-    
-    # Benchmark performance if available
+    fig_perf.add_trace(go.Scatter(x=p_cum.index, y=p_cum, name="Optimized Portfolio",
+                                   line=dict(color='#1E3A8A', width=3),
+                                   fill='tozeroy', fillcolor='rgba(30,58,138,0.1)'))
     if not bench_prices.empty:
-        bench_returns = bench_prices.pct_change().dropna()
-        # Align dates
-        common_idx = p_cum.index.intersection(bench_returns.index)
-        if len(common_idx) > 0:
-            bench_aligned = bench_returns.loc[common_idx]
-            b_cum = (1 + bench_aligned).cumprod()
-            fig_perf.add_trace(go.Scatter(
-                x=b_cum.index, 
-                y=b_cum, 
-                name="S&P 500 Index", 
-                line=dict(color='#94A3B8', dash='dot', width=2)
-            ))
-    
-    fig_perf.update_layout(
-        template="plotly_white",
-        height=500,
-        xaxis_title="Date",
-        yaxis_title="Cumulative Return",
-        hovermode='x unified',
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-        )
-    )
-    
+        b_ret = bench_prices.pct_change().dropna()
+        common = p_cum.index.intersection(b_ret.index)
+        if len(common) > 0:
+            b_cum = (1 + b_ret.loc[common]).cumprod()
+            fig_perf.add_trace(go.Scatter(x=b_cum.index, y=b_cum, name="S&P 500",
+                                           line=dict(color='#94A3B8', dash='dot', width=2)))
+    fig_perf.update_layout(template="plotly_white", height=500,
+                            xaxis_title="Date", yaxis_title="Cumulative Return",
+                            hovermode='x unified',
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                        xanchor="right", x=1))
     st.plotly_chart(fig_perf, use_container_width=True)
-    
-    # --- EXPORT SECTION ---
+
+    # ── Exports ───────────────────────────────────────────────────────────
     st.divider()
     st.markdown('<div class="sub-header">Export Results</div>', unsafe_allow_html=True)
-    
-    col_exp1, col_exp2, col_exp3 = st.columns(3)
-    
-    with col_exp1:
-        # Export portfolio weights
-        export_weights = pd.DataFrame.from_dict(final_weights, orient='index', columns=['Weight'])
-        csv_weights = export_weights.to_csv().encode('utf-8')
-        st.download_button(
-            label="📥 Download Portfolio Weights",
-            data=csv_weights,
-            file_name='portfolio_weights.csv',
-            mime='text/csv'
-        )
-    
-    with col_exp2:
-        # Export performance data
-        perf_data = pd.DataFrame({
-            'Date': p_cum.index,
-            'Portfolio_Return': p_rets.values,
-            'Portfolio_Cumulative': p_cum.values
-        })
-        csv_perf = perf_data.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Download Performance Data",
-            data=csv_perf,
-            file_name='portfolio_performance.csv',
-            mime='text/csv'
-        )
-    
-    with col_exp3:
-        # Export optimization parameters
-        params = {
+    e1, e2, e3 = st.columns(3)
+    with e1:
+        csv_w = pd.DataFrame.from_dict(final_weights, orient='index',
+                                        columns=['Weight']).to_csv().encode()
+        st.download_button("📥 Portfolio Weights", csv_w, "portfolio_weights.csv", "text/csv")
+    with e2:
+        csv_p = pd.DataFrame({'Date': p_cum.index, 'Return': p_rets.values,
+                               'Cumulative': p_cum.values}).to_csv(index=False).encode()
+        st.download_button("📥 Performance Data", csv_p, "portfolio_performance.csv", "text/csv")
+    with e3:
+        params_df = pd.DataFrame([{
             'Analysis_Date': datetime.now().strftime('%Y-%m-%d'),
-            'Tickers': ', '.join(ticker_list),
-            'Start_Date': start_date.strftime('%Y-%m-%d'),
-            'End_Date': end_date.strftime('%Y-%m-%d'),
-            'View_Asset': view_ticker,
-            'View_Return': f"{view_return:.2%}",
-            'View_Confidence': f"{view_conf:.0%}",
-            'Max_Weight': f"{max_cap:.0%}",
-            'Geopolitical_Events': ', '.join(geo_events) if geo_events else 'None',
-            'Risk_Intensity': geo_intensity,
-            'Sharpe_Ratio': f"{sharpe:.2f}",
-            'Annual_Return': f"{ann_ret:.2%}",
-            'Annual_Volatility': f"{ann_vol:.2%}"
-        }
-        params_df = pd.DataFrame([params])
-        csv_params = params_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Download Strategy Parameters",
-            data=csv_params,
-            file_name='strategy_parameters.csv',
-            mime='text/csv'
-        )
-    
-    # --- RISK DISCLAIMER ---
+            'Tickers': ', '.join(tickers_final), 'View_Asset': view_ticker,
+            'View_Return': f"{view_return:.2%}", 'View_Confidence': f"{view_conf:.0%}",
+            'Sharpe': f"{sharpe:.2f}", 'Annual_Return': f"{ann_ret:.2%}",
+            'Annual_Vol': f"{ann_vol:.2%}", 'Max_DD': f"{max_dd:.2%}",
+        }])
+        st.download_button("📥 Strategy Parameters", params_df.to_csv(index=False).encode(),
+                           "strategy_parameters.csv", "text/csv")
+
     st.divider()
     with st.expander("⚠️ Risk Disclaimer"):
         st.markdown("""
-        **Important Information:**
-        
-        - This tool is for educational and research purposes only
-        - Past performance is not indicative of future results
-        - All investments carry risk, including potential loss of principal
-        - The models used make assumptions that may not hold in real markets
-        - Geopolitical risk adjustments are qualitative estimates
-        - Consult with a qualified financial advisor before making investment decisions
-        
-        *The outputs of this engine should not be considered investment advice.*
+        - Educational and research purposes only  
+        - Past performance is not indicative of future results  
+        - Consult a qualified financial adviser before making investment decisions
         """)
 
+    if debug_mode:
+        with st.expander("🔍 Debug Info"):
+            st.write(f"tickers_final: {tickers_final}")
+            st.write(f"S.columns: {list(S.columns)}")
+            st.write(f"bl_mu.index: {list(bl_mu.index)}")
+            st.write(f"prices shape: {prices.shape}")
+            st.dataframe(prices.tail(3))
+
 except Exception as e:
-    st.error(f"🚨 Engine Execution Error: {str(e)}")
-    
-    # Provide helpful debugging information (only expanded if debug mode is on)
-    with st.expander("🔧 Technical Details", expanded=debug_mode):
-        st.code(f"Error type: {type(e).__name__}")
+    st.error(f"🚨 Engine Error: {e}")
+    with st.expander("🔧 Traceback", expanded=debug_mode):
         import traceback
         st.code(traceback.format_exc())
-    
-    st.markdown("""
-    <div class="info-box">
-    <strong>Common issues and solutions:</strong><br>
-    1. <strong>Date format issue:</strong> Fixed - now using proper date handling with end date<br>
-    2. <strong>Invalid ticker symbols:</strong> Check if all tickers are correct and include exchange codes for international stocks (e.g., MC.PA for LVMH)<br>
-    3. <strong>Yahoo Finance rate limits:</strong> Wait 1-2 minutes and try again with fewer tickers<br>
-    4. <strong>Insufficient data:</strong> Auto-adjusted start date finds optimal trading day<br>
-    5. <strong>Future dates:</strong> End date is now capped at today's date automatically<br>
-    6. <strong>Returns calculation:</strong> Debug mode can help identify issues
-    </div>
-    """, unsafe_allow_html=True)
