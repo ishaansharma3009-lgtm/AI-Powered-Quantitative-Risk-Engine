@@ -7,7 +7,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import time
 import warnings
-from datetime import datetime
+from datetime import datetime, timedelta
 
 warnings.filterwarnings('ignore')
 
@@ -32,6 +32,84 @@ st.markdown("""
 st.markdown('<div class="main-header">Asset Management & Quantitative Risk Engine</div>', unsafe_allow_html=True)
 st.caption("Advanced Portfolio Optimization with Geopolitical Risk Integration")
 
+# --- VALID START DATE FINDER FUNCTION ---
+def find_valid_start_date(tickers, target_start, debug_mode=False):
+    """Find a valid start date with data for all tickers"""
+    if not tickers:
+        return target_start
+    
+    current_date = target_start
+    max_attempts = 10
+    
+    for attempt in range(max_attempts):
+        try:
+            # Try to fetch just 5 days of data to test
+            test_end = current_date + timedelta(days=10)
+            test_data = yf.download(
+                tickers, 
+                start=current_date.strftime('%Y-%m-%d'), 
+                end=test_end.strftime('%Y-%m-%d'),
+                progress=False,
+                auto_adjust=True,
+                group_by='ticker'
+            )
+            
+            # Check if we have data for all tickers
+            if not test_data.empty:
+                valid = True
+                for t in tickers:
+                    try:
+                        if isinstance(test_data.columns, pd.MultiIndex):
+                            # MultiIndex case
+                            if t in test_data.columns.get_level_values(0):
+                                # Check if there's at least one non-null value for Close price
+                                if (t, 'Close') in test_data.columns:
+                                    if test_data[(t, 'Close')].isnull().all():
+                                        valid = False
+                                        break
+                                elif (t, 'Adj Close') in test_data.columns:
+                                    if test_data[(t, 'Adj Close')].isnull().all():
+                                        valid = False
+                                        break
+                                else:
+                                    valid = False
+                                    break
+                            else:
+                                valid = False
+                                break
+                        else:
+                            # Single ticker case
+                            if t in test_data.columns:
+                                if test_data[t].isnull().all():
+                                    valid = False
+                                    break
+                            else:
+                                valid = False
+                                break
+                    except:
+                        valid = False
+                        break
+                
+                if valid:
+                    if debug_mode:
+                        st.success(f"✅ Valid start date found: {current_date.strftime('%Y-%m-%d')}")
+                    return current_date
+            
+            # Move to next day
+            current_date = current_date + timedelta(days=1)
+            if debug_mode and attempt % 3 == 0:
+                st.info(f"Testing date: {current_date.strftime('%Y-%m-%d')}...")
+                
+        except Exception as e:
+            if debug_mode:
+                st.warning(f"Test failed for {current_date.strftime('%Y-%m-%d')}: {str(e)}")
+            current_date = current_date + timedelta(days=1)
+    
+    # Fallback to a safe date (first full week of 2020)
+    fallback_date = datetime(2020, 1, 6)
+    st.warning(f"Could not find valid start date automatically. Using fallback: {fallback_date.strftime('%Y-%m-%d')}")
+    return fallback_date
+
 # --- SIDEBAR: STRATEGIC CONTROLS ---
 with st.sidebar:
     st.markdown("### Strategic Parameters")
@@ -39,8 +117,8 @@ with st.sidebar:
     assets = st.text_input("Tickers (comma-separated)", default_tickers)
     ticker_list = [t.strip().upper() for t in assets.split(",") if t.strip()]
     
-    # FIXED: Use a safe default date that's definitely in the past
-    default_start = datetime(2020, 1, 2)  # First trading day of 2020
+    # Use a safe default date
+    default_start = datetime(2020, 1, 2)  # Will be auto-adjusted if needed
     start_date = st.date_input("Analysis Start", value=default_start)
     
     # ADDED: End date control to prevent future date issues
@@ -68,7 +146,7 @@ with st.sidebar:
     max_cap = st.slider("Max Weight per Stock (%)", 10, 100, 35) / 100
     div_penalty = st.slider("Diversification (L2) Penalty", 0.0, 2.0, 0.5)
     
-    # --- DEBUG MODE OPTION 4 ---
+    # --- DEBUG MODE ---
     st.divider()
     st.markdown("### Developer Settings")
     debug_mode = st.checkbox("Show Debug Information", value=False, help="Enable to see detailed data diagnostics")
@@ -89,7 +167,7 @@ def get_clean_data(tickers, start, end):
     elif isinstance(start, str):
         start_str = start
     else:
-        start_str = '2020-01-02'
+        start_str = '2020-01-06'
         if debug_mode:
             st.warning(f"Date format issue. Using default start date: {start_str}")
     
@@ -103,7 +181,7 @@ def get_clean_data(tickers, start, end):
     
     # Ensure we're not using future dates
     if start_str > today_str:
-        start_str = '2020-01-02'
+        start_str = '2020-01-06'
         if debug_mode:
             st.warning(f"Start date is in the future. Using default: {start_str}")
     
@@ -114,7 +192,7 @@ def get_clean_data(tickers, start, end):
     
     # Ensure start is before end
     if start_str >= end_str:
-        start_str = '2020-01-02'
+        start_str = '2020-01-06'
         end_str = today_str
         if debug_mode:
             st.warning(f"Start date must be before end date. Using default range.")
@@ -220,15 +298,24 @@ def get_clean_data(tickers, start, end):
             'XOM': 400, 'WMT': 450, 'PG': 350, 'MA': 400
         }
         
+        # CRITICAL FIX: Only create market caps for tickers that actually exist in assets_data
         mcaps = {}
         for t in tickers:
             if t in assets_data.columns:
                 # Convert billions to actual value for Black-Litterman
                 mcaps[t] = fixed_caps.get(t, 100) * 1e9
             else:
-                mcaps[t] = 1e11  # Default 100B market cap
+                # Don't add market caps for tickers that don't exist
+                if debug_mode:
+                    st.warning(f"Ticker {t} not found in data, skipping market cap")
+                continue
         
-        # Debug info (always show basic success)
+        # If we have no market caps, use defaults for existing tickers
+        if not mcaps:
+            for t in assets_data.columns:
+                mcaps[t] = 1e11  # Default $100B market cap
+        
+        # Debug info
         st.success(f"✅ Successfully fetched data for {len(assets_data.columns)} tickers with {len(assets_data)} days of data")
         st.info(f"📅 Date range: {assets_data.index[0].strftime('%Y-%m-%d')} to {assets_data.index[-1].strftime('%Y-%m-%d')}")
         
@@ -380,6 +467,14 @@ try:
         st.info("👈 Please enter ticker symbols in the sidebar to begin analysis.")
         st.stop()
     
+    # AUTO-FIX: Find a valid start date for all tickers
+    original_start = start_date
+    valid_start = find_valid_start_date(ticker_list, start_date, debug_mode)
+    
+    if valid_start != original_start:
+        st.info(f"📅 Adjusted start date from {original_start.strftime('%Y-%m-%d')} to {valid_start.strftime('%Y-%m-%d')} for optimal data availability")
+        start_date = valid_start
+    
     # Display current parameters
     with st.expander("📋 Current Parameters", expanded=False):
         st.write(f"**Tickers:** {', '.join(ticker_list)}")
@@ -434,10 +529,24 @@ try:
     
     delta = 2.5  # Risk aversion coefficient
     
-    # 2. Black-Litterman Optimization
+    # 2. Black-Litterman Optimization - FIXED WITH ALIGNMENT
     try:
+        # CRITICAL FIX: Ensure market caps only include tickers in the covariance matrix
+        available_tickers_caps = {t: market_caps.get(t, 1e11) for t in ticker_list if t in market_caps}
+        
+        # Check if we have market caps for all current tickers
+        missing_caps = set(ticker_list) - set(available_tickers_caps.keys())
+        if missing_caps:
+            if debug_mode:
+                st.warning(f"Missing market caps for: {missing_caps}. Using default values.")
+            for t in missing_caps:
+                available_tickers_caps[t] = 1e11  # Default $100B market cap
+        
+        # Create market cap series that matches the covariance matrix order
+        market_caps_aligned = pd.Series(available_tickers_caps)
+        
         # Market-implied prior returns
-        prior_rets = black_litterman.market_implied_prior_returns(market_caps, delta, S)
+        prior_rets = black_litterman.market_implied_prior_returns(market_caps_aligned, delta, S)
         
         # Ensure view ticker is available
         if view_ticker not in ticker_list:
@@ -454,11 +563,26 @@ try:
         )
         bl_mu = bl.bl_returns()
         
+        if debug_mode:
+            st.success("✅ Black-Litterman optimization successful!")
+        
     except Exception as e:
         st.warning(f"⚠️ Black-Litterman optimization failed. Using historical returns: {str(e)}")
+        if debug_mode:
+            st.write("**Debug Info:**")
+            st.write(f"Ticker list: {ticker_list}")
+            st.write(f"Market caps keys: {list(market_caps.keys())}")
+            st.write(f"Covariance matrix shape: {S.shape}")
+            st.write(f"Covariance matrix columns: {list(S.columns)}")
+        
         # Fallback to historical mean returns
-        historical_returns = prices[ticker_list].pct_change().mean() * 252
-        bl_mu = historical_returns
+        returns_for_mu = prices[ticker_list].pct_change().dropna()
+        if not returns_for_mu.empty:
+            historical_returns = returns_for_mu.mean() * 252
+            bl_mu = historical_returns
+        else:
+            # Fallback to equal expected returns
+            bl_mu = pd.Series(0.10, index=ticker_list)  # 10% expected return for all
     
     # 3. Mean-Variance Optimization
     try:
@@ -485,7 +609,7 @@ try:
     else:
         final_weights = optimized_weights
     
-    # 5. Calculate Portfolio Performance - WITH DEBUG MODE CONTROL
+    # 5. Calculate Portfolio Performance
     weights_arr = np.array([final_weights.get(t, 0) for t in ticker_list])
     
     # FIX: Check if we have enough price data
@@ -762,9 +886,8 @@ except Exception as e:
     1. <strong>Date format issue:</strong> Fixed - now using proper date handling with end date<br>
     2. <strong>Invalid ticker symbols:</strong> Check if all tickers are correct and include exchange codes for international stocks (e.g., MC.PA for LVMH)<br>
     3. <strong>Yahoo Finance rate limits:</strong> Wait 1-2 minutes and try again with fewer tickers<br>
-    4. <strong>Insufficient data:</strong> Using default start date 2020-01-02 which has plenty of history<br>
+    4. <strong>Insufficient data:</strong> Auto-adjusted start date finds optimal trading day<br>
     5. <strong>Future dates:</strong> End date is now capped at today's date automatically<br>
     6. <strong>Returns calculation:</strong> Debug mode can help identify issues
     </div>
     """, unsafe_allow_html=True)
-
