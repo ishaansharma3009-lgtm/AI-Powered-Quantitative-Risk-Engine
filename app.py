@@ -92,14 +92,14 @@ st.markdown("""
         color: var(--accent) !important;
     }
 
-    /* ── DISCLAIMER: REAL ARROW ONLY ── */
+    /* ── Expanders (dropdown arrows) – general styling ── */
     [data-testid="stExpander"] details summary {
         display: flex !important;
         align-items: center !important;
-        justify-content: center !important;
+        justify-content: space-between !important;
         cursor: pointer !important;
         list-style: none !important;
-        padding: 0.6rem !important;
+        padding: 0.6rem 0 !important;
         user-select: none !important;
     }
     [data-testid="stExpander"] details summary::-webkit-details-marker,
@@ -117,14 +117,62 @@ st.markdown("""
         content: "▲" !important;
         color: var(--accent) !important;
     }
+    /* Make expander boxes borderless/backgroundless for cleaner look (except sidebar) */
     [data-testid="stExpander"] details {
-        background: var(--surface) !important;
-        border: 1px solid var(--border) !important;
-        border-radius: 6px !important;
-        overflow: hidden !important;
+        background: transparent !important;
+        border: none !important;
+        border-radius: 0 !important;
+        overflow: visible !important;
     }
-    [data-testid="stExpander"] details[open] {
-        border-color: var(--border2) !important;
+
+    /* Sidebar expander retains a subtle border */
+    [data-testid="stSidebar"] [data-testid="stExpander"] details {
+        background: var(--surface2) !important;
+        border: 1px solid var(--border2) !important;
+        border-radius: 6px !important;
+        padding: 0.2rem 0.8rem !important;
+        margin-top: 0.5rem;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] details[open] {
+        border-color: var(--accent) !important;
+    }
+
+    /* ── Custom disclaimer dropdown (no box, just bullet points) ── */
+    .disclaimer-dropdown {
+        margin-top: 2rem;
+        font-size: 0.7rem;
+    }
+    .disclaimer-dropdown details {
+        background: transparent !important;
+        border: none !important;
+    }
+    .disclaimer-dropdown summary {
+        cursor: pointer;
+        list-style: none;
+        display: inline-block;
+        color: var(--muted);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        font-size: 0.65rem;
+    }
+    .disclaimer-dropdown summary::-webkit-details-marker,
+    .disclaimer-dropdown summary::marker { display: none; }
+    .disclaimer-dropdown summary::after {
+        content: " ▼";
+        font-size: 10px;
+        color: var(--accent);
+    }
+    .disclaimer-dropdown details[open] summary::after {
+        content: " ▲";
+    }
+    .disclaimer-dropdown ul {
+        margin-top: 0.5rem;
+        padding-left: 1.2rem;
+        color: var(--text2);
+    }
+    .disclaimer-dropdown li {
+        margin: 0.2rem 0;
+        line-height: 1.4;
     }
 
     /* ── Sidebar ─────────────────────────────────────────── */
@@ -453,6 +501,19 @@ with st.sidebar:
     st.markdown("### Risk Controls")
     max_cap     = st.slider("Max Weight per Asset (%)", 10, 100, 35) / 100
     div_penalty = st.slider("L2 Diversification Penalty", 0.0, 2.0, 0.5)
+
+    st.divider()
+    # --- NEW: Collapsible Advanced Panel (Sidebar) ---
+    with st.expander("⚙️ Advanced Panel", expanded=False):
+        st.markdown("**Tail Risk Settings**")
+        tail_hedge = st.slider("Tail Risk Hedge (%)", 0, 20, 5, help="% of portfolio allocated to a protective put/call")
+        st.markdown("**Volatility Targeting**")
+        vol_target = st.slider("Target Annual Volatility", 0.05, 0.30, 0.15, step=0.01,
+                               help="If enabled, portfolio will be scaled to this vol level (not implemented in demo)")
+        st.markdown("**Miscellaneous**")
+        use_esg = st.checkbox("Apply ESG filter (mock)", value=False)
+        if use_esg:
+            st.caption("ESG filter would exclude certain sectors (demo placeholder)")
 
     st.divider()
     debug_mode = st.checkbox("Debug mode", value=False)
@@ -913,13 +974,20 @@ try:
                            params_df.to_csv(index=False).encode(),
                            "strategy_parameters.csv", "text/csv")
 
-    # ── Disclaimer ────────────────────────────────────────────────────────
-    with st.expander("Risk Disclaimer"):
-        st.markdown("""
-        Educational and research purposes only.
-        Past performance is not indicative of future results.
-        Consult a qualified financial adviser before making investment decisions.
-        """)
+    # ── Custom Disclaimer Dropdown (no box, bullet points) ────────────────
+    st.markdown("""
+    <div class="disclaimer-dropdown">
+      <details>
+        <summary>Risk Disclaimer</summary>
+        <ul>
+          <li>Educational and research purposes only.</li>
+          <li>Past performance is not indicative of future results.</li>
+          <li>Consult a qualified financial adviser before making investment decisions.</li>
+          <li>The Black-Litterman views, geopolitical overlay, and optimisation parameters are hypothetical.</li>
+        </ul>
+      </details>
+    </div>
+    """, unsafe_allow_html=True)
 
     # ── Debug ─────────────────────────────────────────────────────────────
     if debug_mode:
