@@ -3,27 +3,25 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from pypfopt import risk_models, EfficientFrontier, black_litterman, objective_functions
-import plotly.express as px
 import plotly.graph_objects as go
 import time
 import warnings
-from datetime import datetime, timedelta
+from datetime import datetime
 
 warnings.filterwarnings('ignore')
 
-# --- PAGE SETUP ---
+# --- PAGE SETUP (sidebar always expanded) ---
 st.set_page_config(
     page_title="Quant Risk Engine",
     layout="wide",
     page_icon="◈",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded"      # sidebar starts open
 )
 
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&family=IBM+Plex+Mono:wght@300;400;500&display=swap');
 
-    /* ── Root & global reset ─────────────────────────────── */
     :root {
         --bg:        #08090d;
         --surface:   #0f1117;
@@ -45,7 +43,7 @@ st.markdown("""
 
     * { font-family: var(--font-mono) !important; }
 
-    /* ── Hide Streamlit's default top toolbar/header bar ── */
+    /* Hide Streamlit's default top toolbar/header bar */
     [data-testid="stHeader"],
     header[data-testid="stHeader"],
     #stDecoration,
@@ -53,7 +51,7 @@ st.markdown("""
     [data-testid="stStatusWidget"],
     [data-testid="stMainMenuPopover"] { display: none !important; visibility: hidden !important; }
 
-    /* Remove the top padding that Streamlit adds to make room for its header */
+    /* Remove top padding */
     .block-container {
         padding-top: 1.8rem !important;
         padding-left: 2.5rem !important;
@@ -62,16 +60,31 @@ st.markdown("""
         max-width: 1600px !important;
     }
 
-    /* ── CLEAN SINGLE SIDEBAR ARROW ── */
+    /* ── SIDEBAR ARROW (made very visible) ── */
     [data-testid="stSidebarCollapseButton"],
     [data-testid="collapsedControl"] {
         z-index: 999 !important;
+        position: fixed !important;
+        left: 0 !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
+        background: rgba(79,255,176,0.15) !important;
+        border-radius: 0 8px 8px 0 !important;
+        padding: 12px 4px !important;
+        border: 1px solid var(--accent) !important;
+        border-left: none !important;
+        transition: all 0.2s !important;
+    }
+    [data-testid="stSidebarCollapseButton"]:hover,
+    [data-testid="collapsedControl"]:hover {
+        background: rgba(79,255,176,0.35) !important;
+        padding: 12px 8px !important;
     }
     [data-testid="stSidebarCollapseButton"] button,
     [data-testid="collapsedControl"] button {
         all: unset !important;
-        width: 34px !important;
-        height: 34px !important;
+        width: 28px !important;
+        height: 28px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
@@ -83,49 +96,18 @@ st.markdown("""
     }
     [data-testid="stSidebarCollapseButton"] button::before {
         content: "◀" !important;
-        font-size: 14px !important;
+        font-size: 18px !important;
         color: var(--accent) !important;
+        font-weight: bold !important;
     }
     [data-testid="collapsedControl"] button::before {
         content: "▶" !important;
-        font-size: 14px !important;
+        font-size: 18px !important;
         color: var(--accent) !important;
+        font-weight: bold !important;
     }
 
-    /* ── Expanders (dropdown arrows) – general styling ── */
-    [data-testid="stExpander"] details summary {
-        display: flex !important;
-        align-items: center !important;
-        justify-content: space-between !important;
-        cursor: pointer !important;
-        list-style: none !important;
-        padding: 0.6rem 0 !important;
-        user-select: none !important;
-    }
-    [data-testid="stExpander"] details summary::-webkit-details-marker,
-    [data-testid="stExpander"] details summary::marker { display: none !important; }
-    [data-testid="stExpander"] summary p,
-    [data-testid="stExpander"] summary svg,
-    [data-testid="stExpander"] summary button { display: none !important; }
-    [data-testid="stExpander"] details summary::after {
-        content: "▼" !important;
-        font-size: 12px !important;
-        color: var(--muted) !important;
-        transition: 0.25s !important;
-    }
-    [data-testid="stExpander"] details[open] summary::after {
-        content: "▲" !important;
-        color: var(--accent) !important;
-    }
-    /* Make expander boxes borderless/backgroundless for cleaner look (except sidebar) */
-    [data-testid="stExpander"] details {
-        background: transparent !important;
-        border: none !important;
-        border-radius: 0 !important;
-        overflow: visible !important;
-    }
-
-    /* Sidebar expander retains a subtle border */
+    /* Sidebar expander (Advanced Panel) */
     [data-testid="stSidebar"] [data-testid="stExpander"] details {
         background: var(--surface2) !important;
         border: 1px solid var(--border2) !important;
@@ -137,7 +119,7 @@ st.markdown("""
         border-color: var(--accent) !important;
     }
 
-    /* ── Custom disclaimer dropdown (no box, just bullet points) ── */
+    /* Custom disclaimer dropdown (no box, bullet points) */
     .disclaimer-dropdown {
         margin-top: 2rem;
         font-size: 0.7rem;
@@ -175,7 +157,7 @@ st.markdown("""
         line-height: 1.4;
     }
 
-    /* ── Sidebar ─────────────────────────────────────────── */
+    /* Sidebar styling */
     [data-testid="stSidebar"] {
         background: var(--surface) !important;
         border-right: 1px solid var(--border) !important;
@@ -218,7 +200,7 @@ st.markdown("""
         box-shadow: 0 0 8px var(--accent) !important;
     }
 
-    /* ── Header ──────────────────────────────────────────── */
+    /* Header, KPI, panels etc. (unchanged from original) */
     .qre-header {
         display: flex;
         align-items: center;
@@ -267,7 +249,6 @@ st.markdown("""
         white-space: nowrap;
     }
 
-    /* ── Section labels ──────────────────────────────────── */
     .sec-label {
         font-family: var(--font-head);
         font-size: 0.65rem;
@@ -293,7 +274,6 @@ st.markdown("""
         display: inline-block;
     }
 
-    /* ── KPI strip ───────────────────────────────────────── */
     .kpi-grid {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
@@ -342,7 +322,6 @@ st.markdown("""
         margin-top: 0.3rem;
     }
 
-    /* ── Panel cards ─────────────────────────────────────── */
     .panel {
         background: var(--surface);
         border: 1px solid var(--border);
@@ -359,7 +338,6 @@ st.markdown("""
         border-bottom: 1px solid var(--border);
     }
 
-    /* ── Weight table ────────────────────────────────────── */
     .wt-row {
         display: flex;
         align-items: center;
@@ -391,44 +369,6 @@ st.markdown("""
         text-align: right;
     }
 
-    /* ── Alerts / info ───────────────────────────────────── */
-    [data-testid="stAlert"] {
-        background: var(--surface2) !important;
-        border: 1px solid var(--border2) !important;
-        color: var(--text2) !important;
-        border-radius: 4px !important;
-    }
-
-    /* ── Plotly chart containers ─────────────────────────── */
-    .js-plotly-plot .plotly { background: transparent !important; }
-
-    /* ── Download buttons ────────────────────────────────── */
-    .stDownloadButton button {
-        background: var(--surface2) !important;
-        border: 1px solid var(--border2) !important;
-        color: var(--text2) !important;
-        font-size: 0.68rem !important;
-        letter-spacing: 0.1em !important;
-        text-transform: uppercase !important;
-        border-radius: 3px !important;
-        padding: 0.4rem 0.9rem !important;
-        width: 100% !important;
-        transition: border-color 0.15s !important;
-    }
-    .stDownloadButton button:hover {
-        border-color: var(--accent) !important;
-        color: var(--accent) !important;
-    }
-
-    /* ── Spinner ─────────────────────────────────────────── */
-    [data-testid="stSpinner"] { color: var(--accent) !important; }
-
-    /* ── General text ────────────────────────────────────── */
-    p, li, span, div { color: var(--text2); }
-    h1, h2, h3, h4 { color: var(--text) !important; }
-    .stMarkdown a { color: var(--accent2) !important; }
-
-    /* ── Geo overlay badge ───────────────────────────────── */
     .geo-badge {
         display: inline-block;
         background: rgba(255,107,107,0.1);
@@ -442,14 +382,13 @@ st.markdown("""
         margin-top: 0.5rem;
     }
 
-    /* Scrollbar */
     ::-webkit-scrollbar { width: 4px; height: 4px; }
     ::-webkit-scrollbar-track { background: var(--bg); }
     ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Header ────────────────────────────────────────────────────────────────────
+# ── Header ─────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="qre-header">
   <div class="qre-title-block">
@@ -467,7 +406,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- SIDEBAR ---
+# --- SIDEBAR (now clearly visible with bright arrow) ---
 with st.sidebar:
     st.markdown("### Tickers")
     default_tickers = "AAPL, MSFT, JPM, MC.PA, ASML, NESN.SW"
@@ -493,6 +432,7 @@ with st.sidebar:
 
     st.divider()
     st.markdown("### Black-Litterman View")
+    # Placeholder for view_ticker; will be updated after data fetch
     view_ticker = st.selectbox("Asset", ticker_list if ticker_list else ["AAPL"], label_visibility="collapsed")
     view_return = st.slider("Expected Return (%)", -20, 40, 10) / 100
     view_conf   = st.slider("Confidence (%)", 10, 100, 50) / 100
@@ -503,13 +443,13 @@ with st.sidebar:
     div_penalty = st.slider("L2 Diversification Penalty", 0.0, 2.0, 0.5)
 
     st.divider()
-    # --- NEW: Collapsible Advanced Panel (Sidebar) ---
+    # --- ADVANCED PANEL (collapsible, arrow accessible) ---
     with st.expander("⚙️ Advanced Panel", expanded=False):
         st.markdown("**Tail Risk Settings**")
         tail_hedge = st.slider("Tail Risk Hedge (%)", 0, 20, 5, help="% of portfolio allocated to a protective put/call")
         st.markdown("**Volatility Targeting**")
         vol_target = st.slider("Target Annual Volatility", 0.05, 0.30, 0.15, step=0.01,
-                               help="If enabled, portfolio will be scaled to this vol level (not implemented in demo)")
+                               help="If enabled, portfolio would be scaled to this vol level (demo)")
         st.markdown("**Miscellaneous**")
         use_esg = st.checkbox("Apply ESG filter (mock)", value=False)
         if use_esg:
@@ -519,7 +459,7 @@ with st.sidebar:
     debug_mode = st.checkbox("Debug mode", value=False)
 
 
-# --- DATA FETCHING ---
+# --- DATA FETCHING (unchanged from original) ---
 @st.cache_data(ttl=3600)
 def get_clean_data(tickers, start, end, debug=False):
     today_str = datetime.now().strftime('%Y-%m-%d')
@@ -574,8 +514,6 @@ def get_clean_data(tickers, start, end, debug=False):
     mcaps = {t: fixed_caps.get(t, 100) * 1e9 for t in assets_df.columns}
     return assets_df, benchmark, mcaps
 
-
-# --- GEOPOLITICAL OVERLAY ---
 def apply_geopolitical_overlay(weights, events, intensity):
     if not events or intensity <= 0.5:
         return weights
@@ -603,8 +541,6 @@ def apply_geopolitical_overlay(weights, events, intensity):
     total = sum(adj.values())
     return {k: v / total for k, v in adj.items()} if total > 0 else weights
 
-
-# --- CHART HELPERS ---
 PLOTLY_THEME = dict(
     template="plotly_dark",
     paper_bgcolor="rgba(0,0,0,0)",
@@ -674,7 +610,6 @@ def plot_efficient_frontier(mu, S, rf=0.02):
         if debug_mode: st.warning(f"Efficient frontier error: {e}")
         return None
 
-
 def plot_performance(p_cum, p_rets, bench_prices):
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -702,7 +637,6 @@ def plot_performance(p_cum, p_rets, bench_prices):
     )
     return fig
 
-
 def plot_drawdown(p_cum):
     rolling_max = p_cum.expanding().max()
     drawdown    = (p_cum - rolling_max) / rolling_max
@@ -722,7 +656,6 @@ def plot_drawdown(p_cum):
         **{k: v for k, v in PLOTLY_THEME.items() if k not in ('xaxis','yaxis','margin')}
     )
     return fig
-
 
 def plot_allocation_donut(final_weights):
     w_df = pd.DataFrame.from_dict(final_weights, orient='index', columns=['Weight'])
@@ -750,7 +683,6 @@ def plot_allocation_donut(final_weights):
     )
     return fig
 
-
 def weight_table_html(final_weights):
     sorted_w = sorted(final_weights.items(), key=lambda x: -x[1])
     rows = ""
@@ -767,7 +699,7 @@ def weight_table_html(final_weights):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MAIN
+# MAIN EXECUTION
 # ═══════════════════════════════════════════════════════════════════════════════
 try:
     if not ticker_list:
@@ -794,17 +726,18 @@ try:
     prices      = prices[ticker_list]
     market_caps = {t: market_caps[t] for t in ticker_list if t in market_caps}
 
+    # Ensure view_ticker is valid
     if view_ticker not in ticker_list:
         view_ticker = ticker_list[0]
 
-    # ── Covariance ────────────────────────────────────────────────────────
+    # Covariance
     try:
         S = risk_models.CovarianceShrinkage(prices).ledoit_wolf()
     except Exception:
         S = risk_models.sample_cov(prices)
     tickers_final = list(S.columns)
 
-    # ── Black-Litterman ───────────────────────────────────────────────────
+    # Black-Litterman
     try:
         mcap_series = pd.Series(
             {t: market_caps.get(t, 1e11) for t in tickers_final}, index=tickers_final)
@@ -821,7 +754,7 @@ try:
         ret_tmp = prices.pct_change().dropna()
         bl_mu   = (ret_tmp.mean() * 252).reindex(tickers_final).fillna(0.10)
 
-    # ── Optimisation ──────────────────────────────────────────────────────
+    # Optimisation
     try:
         ef = EfficientFrontier(bl_mu, S, weight_bounds=(0, max_cap))
         ef.add_objective(objective_functions.L2_reg, gamma=div_penalty)
@@ -837,7 +770,7 @@ try:
     final_weights = (apply_geopolitical_overlay(optimized_weights, geo_events, geo_intensity)
                      if geo_events and geo_intensity > 0.5 else optimized_weights)
 
-    # ── Returns & metrics ─────────────────────────────────────────────────
+    # Returns & metrics
     weights_arr = np.array([final_weights.get(t, 0) for t in tickers_final])
     returns     = prices.pct_change().dropna().astype(float)
     p_rets      = (returns * weights_arr).sum(axis=1)
@@ -851,9 +784,7 @@ try:
     down_vol = p_rets[p_rets < 0].std() * np.sqrt(252)
     sortino  = ann_ret / down_vol if down_vol > 0 else 0
 
-    # ──────────────────────────────────────────────────────────────────────
-    # LAYOUT  ①  KPI strip
-    # ──────────────────────────────────────────────────────────────────────
+    # KPI strip
     sharpe_cls  = "pos" if sharpe  >= 1    else ("neg" if sharpe  < 0    else "")
     ret_cls     = "pos" if ann_ret >= 0    else "neg"
     dd_cls      = "neg" if max_dd  < -0.15 else ""
@@ -883,9 +814,7 @@ try:
     </div>
     """, unsafe_allow_html=True)
 
-    # ──────────────────────────────────────────────────────────────────────
-    # LAYOUT  ②  Performance (left) + Drawdown (stacked) | Sortino card (right)
-    # ──────────────────────────────────────────────────────────────────────
+    # Performance & Sortino
     st.markdown('<div class="sec-label"><span class="dot"></span> Performance Comparison</div>',
                 unsafe_allow_html=True)
 
@@ -915,9 +844,7 @@ try:
         </div>
         """, unsafe_allow_html=True)
 
-    # ──────────────────────────────────────────────────────────────────────
-    # LAYOUT  ③  Portfolio Allocation (donut) | Weight table
-    # ──────────────────────────────────────────────────────────────────────
+    # Allocation
     st.markdown('<div class="sec-label"><span class="dot"></span> Portfolio Allocation</div>',
                 unsafe_allow_html=True)
 
@@ -934,9 +861,7 @@ try:
     with wt_col:
         st.markdown(weight_table_html(final_weights), unsafe_allow_html=True)
 
-    # ──────────────────────────────────────────────────────────────────────
-    # LAYOUT  ④  Efficient Frontier (full-width)
-    # ──────────────────────────────────────────────────────────────────────
+    # Efficient Frontier
     st.markdown('<div class="sec-label"><span class="dot"></span> Efficient Frontier</div>',
                 unsafe_allow_html=True)
 
@@ -944,9 +869,7 @@ try:
     if fig_ef:
         st.plotly_chart(fig_ef, use_container_width=True, config=dict(displayModeBar=False))
 
-    # ──────────────────────────────────────────────────────────────────────
-    # LAYOUT  ⑤  Exports
-    # ──────────────────────────────────────────────────────────────────────
+    # Export
     st.markdown('<div class="sec-label"><span class="dot"></span> Export</div>',
                 unsafe_allow_html=True)
 
@@ -974,7 +897,7 @@ try:
                            params_df.to_csv(index=False).encode(),
                            "strategy_parameters.csv", "text/csv")
 
-    # ── Custom Disclaimer Dropdown (no box, bullet points) ────────────────
+    # Disclaimer dropdown (clean, bullet points)
     st.markdown("""
     <div class="disclaimer-dropdown">
       <details>
@@ -989,7 +912,6 @@ try:
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Debug ─────────────────────────────────────────────────────────────
     if debug_mode:
         with st.expander("Debug"):
             st.write(f"tickers_final: {tickers_final}")
