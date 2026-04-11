@@ -59,16 +59,18 @@ st.markdown("""
         max-width: 1600px !important;
     }
 
-    /* Sidebar expander (Advanced Panel) */
-    [data-testid="stSidebar"] [data-testid="stExpander"] details {
-        background: var(--surface2) !important;
-        border: 1px solid var(--border2) !important;
-        border-radius: 6px !important;
-        padding: 0.2rem 0.8rem !important;
-        margin-top: 0.5rem;
+    /* ── FORCE SIDEBAR ALWAYS VISIBLE (no collapse button) ── */
+    [data-testid="stSidebar"] {
+        min-width: 280px !important;
+        width: 280px !important;
+        transform: none !important;
+        visibility: visible !important;
+        display: block !important;
+        position: relative !important;
     }
-    [data-testid="stSidebar"] [data-testid="stExpander"] details[open] {
-        border-color: var(--accent) !important;
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="collapsedControl"] {
+        display: none !important;
     }
 
     /* Custom disclaimer dropdown (no box, bullet points) */
@@ -358,7 +360,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- SIDEBAR ---
+# --- SIDEBAR (permanently visible) ---
 with st.sidebar:
     st.markdown("### Tickers")
     default_tickers = "AAPL, MSFT, JPM, MC.PA, ASML, NESN.SW"
@@ -392,16 +394,6 @@ with st.sidebar:
     st.markdown("### Risk Controls")
     max_cap     = st.slider("Max Weight per Asset (%)", 10, 100, 35) / 100
     div_penalty = st.slider("L2 Diversification Penalty", 0.0, 2.0, 0.5)
-
-    st.divider()
-    # ── Collapsible Panel (arrow accessible) ──
-    with st.expander("🔧 Risk Controls Panel", expanded=False):
-        st.slider("Tail Risk Hedge (%)", 0, 20, 5, help="% of portfolio for protective puts")
-        st.slider("Volatility Target (annual)", 0.05, 0.25, 0.15, step=0.01,
-                  format="%.0f%%", help="Portfolio volatility scaling target")
-        st.selectbox("Stress Scenario", ["None", "Market Crash", "Inflation Spike", "Geopolitical Crisis"])
-        st.checkbox("Apply ESG filter", value=False, help="Mock filter – excludes certain sectors")
-        st.caption("These controls extend the base optimisation.")
 
     st.divider()
     debug_mode = st.checkbox("Debug mode", value=False)
