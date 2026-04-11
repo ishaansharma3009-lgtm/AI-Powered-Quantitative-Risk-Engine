@@ -62,36 +62,148 @@ st.markdown("""
         max-width: 1600px !important;
     }
 
-    /* ── Sidebar collapse button — hide the icon glyph text,
-           show a clean CSS arrow instead ───────────────────── */
-    [data-testid="stSidebarCollapseButton"] button {
-        background: var(--surface2) !important;
-        border: 1px solid var(--border2) !important;
+    /* ── Sidebar collapse button ─────────────────────────── */
+    /* Style the button shell */
+    [data-testid="stSidebarCollapseButton"] button,
+    [data-testid="stSidebarUserContent"] ~ div button {
+        background: rgba(79,255,176,0.07) !important;
+        border: 1px solid rgba(79,255,176,0.3) !important;
         border-radius: 4px !important;
-        width: 28px !important;
-        height: 28px !important;
+        width: 30px !important;
+        height: 30px !important;
+        padding: 0 !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
         cursor: pointer !important;
+        overflow: hidden !important;
         position: relative !important;
+        transition: background 0.15s, border-color 0.15s !important;
     }
-    /* Hide the Material icon text/svg inside */
-    [data-testid="stSidebarCollapseButton"] button svg,
-    [data-testid="stSidebarCollapseButton"] button span { display: none !important; }
-    /* Draw a CSS-only left-pointing arrow */
-    [data-testid="stSidebarCollapseButton"] button::after {
-        content: '';
-        display: block;
-        width: 7px;
-        height: 7px;
-        border-left: 2px solid var(--accent);
-        border-bottom: 2px solid var(--accent);
-        transform: rotate(45deg) translateX(2px);
+    [data-testid="stSidebarCollapseButton"] button:hover {
+        background: rgba(79,255,176,0.15) !important;
+        border-color: var(--accent) !important;
     }
-    /* When sidebar is collapsed the button is in the main area — flip arrow */
-    [data-testid="collapsedControl"] [data-testid="stSidebarCollapseButton"] button::after {
-        transform: rotate(225deg) translateX(2px);
+    /* Completely hide ALL children — svg, span, p, any glyph */
+    [data-testid="stSidebarCollapseButton"] button * {
+        display: none !important;
+        visibility: hidden !important;
+        width: 0 !important;
+        height: 0 !important;
+        overflow: hidden !important;
+        font-size: 0 !important;
+        color: transparent !important;
+    }
+    /* CSS chevron pointing LEFT (sidebar open → click to close) */
+    [data-testid="stSidebarCollapseButton"] button::before {
+        content: '' !important;
+        display: block !important;
+        visibility: visible !important;
+        width: 8px !important;
+        height: 8px !important;
+        border-left: 2.5px solid var(--accent) !important;
+        border-bottom: 2.5px solid var(--accent) !important;
+        transform: rotate(45deg) !important;
+        margin-left: 3px !important;
+        flex-shrink: 0 !important;
+    }
+    /* When collapsed: button lives in [data-testid="collapsedControl"], flip chevron RIGHT */
+    [data-testid="collapsedControl"] button::before {
+        content: '' !important;
+        display: block !important;
+        visibility: visible !important;
+        width: 8px !important;
+        height: 8px !important;
+        border-left: 2.5px solid var(--accent) !important;
+        border-bottom: 2.5px solid var(--accent) !important;
+        transform: rotate(225deg) !important;
+        margin-left: -3px !important;
+        flex-shrink: 0 !important;
+    }
+    [data-testid="collapsedControl"] button * {
+        display: none !important;
+        visibility: hidden !important;
+        width: 0 !important;
+        height: 0 !important;
+        font-size: 0 !important;
+        color: transparent !important;
+    }
+    [data-testid="collapsedControl"] button {
+        background: rgba(79,255,176,0.07) !important;
+        border: 1px solid rgba(79,255,176,0.3) !important;
+        border-radius: 4px !important;
+        width: 30px !important;
+        height: 30px !important;
+        padding: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        cursor: pointer !important;
+        overflow: hidden !important;
+    }
+
+    /* ── Expander ────────────────────────────────────────── */
+    /* The expander in Streamlit renders summary > div > p + button(svg).
+       We hide every child of summary and draw our own chevron via ::after. */
+    [data-testid="stExpander"] details summary {
+        display: flex !important;
+        align-items: center !important;
+        gap: 0.5rem !important;
+        cursor: pointer !important;
+        list-style: none !important;
+        padding: 0.6rem 0.8rem !important;
+        user-select: none !important;
+    }
+    [data-testid="stExpander"] details summary::-webkit-details-marker,
+    [data-testid="stExpander"] details summary::marker { display: none !important; }
+
+    /* Hide every native icon/svg/button Streamlit puts inside summary */
+    [data-testid="stExpander"] details summary svg { display: none !important; }
+    [data-testid="stExpander"] details summary button {
+        display: none !important;
+        pointer-events: none !important;
+    }
+
+    /* The label text span — keep visible, style it */
+    [data-testid="stExpander"] details summary > div,
+    [data-testid="stExpander"] details summary p {
+        color: var(--text2) !important;
+        font-size: 0.72rem !important;
+        letter-spacing: 0.1em !important;
+        text-transform: uppercase !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        flex: 1 !important;
+    }
+
+    /* CSS chevron — points DOWN when closed */
+    [data-testid="stExpander"] details summary::after {
+        content: '' !important;
+        display: inline-block !important;
+        width: 7px !important;
+        height: 7px !important;
+        border-right: 2px solid var(--text2) !important;
+        border-bottom: 2px solid var(--text2) !important;
+        transform: rotate(45deg) !important;
+        transition: transform 0.2s ease !important;
+        flex-shrink: 0 !important;
+        margin-right: 0.2rem !important;
+    }
+    /* Points UP when open */
+    [data-testid="stExpander"] details[open] summary::after {
+        transform: rotate(-135deg) !important;
+        margin-top: 4px !important;
+    }
+
+    /* Container */
+    [data-testid="stExpander"] details {
+        background: var(--surface) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 6px !important;
+        overflow: hidden !important;
+    }
+    [data-testid="stExpander"] details[open] {
+        border-color: var(--border2) !important;
     }
 
     /* ── Sidebar ─────────────────────────────────────────── */
@@ -185,39 +297,6 @@ st.markdown("""
         border-radius: 3px;
         white-space: nowrap;
     }
-
-    /* ── Expander — replace broken icon text with CSS arrow ── */
-    /* Hide any raw text / svg glyph inside the expander toggle */
-    [data-testid="stExpander"] summary svg,
-    [data-testid="stExpander"] summary span[data-testid="stExpanderToggleIcon"] {
-        display: none !important;
-    }
-    /* Draw the arrow purely in CSS */
-    [data-testid="stExpander"] summary::after {
-        content: '';
-        display: inline-block;
-        width: 7px;
-        height: 7px;
-        border-right: 2px solid var(--text2);
-        border-bottom: 2px solid var(--text2);
-        transform: rotate(45deg);
-        margin-left: 0.5rem;
-        transition: transform 0.2s ease;
-        flex-shrink: 0;
-    }
-    /* Rotate when open */
-    [data-testid="stExpander"][open] summary::after,
-    [data-testid="stExpander"] summary[aria-expanded="true"]::after {
-        transform: rotate(-135deg);
-    }
-    [data-testid="stExpander"] summary {
-        display: flex !important;
-        align-items: center !important;
-        color: var(--text2) !important;
-        cursor: pointer !important;
-        list-style: none !important;
-    }
-    [data-testid="stExpander"] summary::-webkit-details-marker { display: none !important; }
 
     /* ── Section labels ──────────────────────────────────── */
     .sec-label {
@@ -370,13 +449,6 @@ st.markdown("""
     .stDownloadButton button:hover {
         border-color: var(--accent) !important;
         color: var(--accent) !important;
-    }
-
-    /* ── Expander container ──────────────────────────────── */
-    [data-testid="stExpander"] {
-        background: var(--surface) !important;
-        border: 1px solid var(--border) !important;
-        border-radius: 4px !important;
     }
 
     /* ── Spinner ─────────────────────────────────────────── */
