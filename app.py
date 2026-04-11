@@ -45,6 +45,55 @@ st.markdown("""
 
     * { font-family: var(--font-mono) !important; }
 
+    /* ── Hide Streamlit's default top toolbar/header bar ── */
+    [data-testid="stHeader"],
+    header[data-testid="stHeader"],
+    #stDecoration,
+    [data-testid="stToolbar"],
+    [data-testid="stStatusWidget"],
+    [data-testid="stMainMenuPopover"] { display: none !important; visibility: hidden !important; }
+
+    /* Remove the top padding that Streamlit adds to make room for its header */
+    .block-container {
+        padding-top: 1.8rem !important;
+        padding-left: 2.5rem !important;
+        padding-right: 2.5rem !important;
+        padding-bottom: 4rem !important;
+        max-width: 1600px !important;
+    }
+
+    /* ── Sidebar collapse button — hide the icon glyph text,
+           show a clean CSS arrow instead ───────────────────── */
+    [data-testid="stSidebarCollapseButton"] button {
+        background: var(--surface2) !important;
+        border: 1px solid var(--border2) !important;
+        border-radius: 4px !important;
+        width: 28px !important;
+        height: 28px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        cursor: pointer !important;
+        position: relative !important;
+    }
+    /* Hide the Material icon text/svg inside */
+    [data-testid="stSidebarCollapseButton"] button svg,
+    [data-testid="stSidebarCollapseButton"] button span { display: none !important; }
+    /* Draw a CSS-only left-pointing arrow */
+    [data-testid="stSidebarCollapseButton"] button::after {
+        content: '';
+        display: block;
+        width: 7px;
+        height: 7px;
+        border-left: 2px solid var(--accent);
+        border-bottom: 2px solid var(--accent);
+        transform: rotate(45deg) translateX(2px);
+    }
+    /* When sidebar is collapsed the button is in the main area — flip arrow */
+    [data-testid="collapsedControl"] [data-testid="stSidebarCollapseButton"] button::after {
+        transform: rotate(225deg) translateX(2px);
+    }
+
     /* ── Sidebar ─────────────────────────────────────────── */
     [data-testid="stSidebar"] {
         background: var(--surface) !important;
@@ -88,36 +137,41 @@ st.markdown("""
         box-shadow: 0 0 8px var(--accent) !important;
     }
 
-    /* ── Main content ────────────────────────────────────── */
-    .block-container {
-        padding: 2rem 2.5rem 4rem !important;
-        max-width: 1600px !important;
-    }
-
     /* ── Header ──────────────────────────────────────────── */
     .qre-header {
         display: flex;
-        align-items: flex-end;
-        gap: 1.2rem;
+        align-items: center;
+        gap: 2rem;
         margin-bottom: 2rem;
-        padding-bottom: 1.2rem;
+        padding-bottom: 1.4rem;
         border-bottom: 1px solid var(--border);
     }
+    .qre-title-block { display: flex; flex-direction: column; gap: 0.3rem; }
     .qre-logo {
         font-family: 'Space Grotesk', 'Trebuchet MS', Arial, sans-serif !important;
-        font-size: 2.6rem;
+        font-size: 2.2rem;
         font-weight: 800;
         color: var(--text);
-        letter-spacing: -0.03em;
+        letter-spacing: -0.02em;
         line-height: 1;
+        white-space: nowrap;
     }
     .qre-logo span { color: var(--accent); }
+    .qre-subtitle {
+        font-family: 'Space Grotesk', 'Trebuchet MS', Arial, sans-serif !important;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text2);
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+    }
     .qre-tagline {
-        font-size: 0.68rem;
+        font-size: 0.65rem;
         color: var(--muted);
-        letter-spacing: 0.18em;
+        letter-spacing: 0.16em;
         text-transform: uppercase;
-        margin-bottom: 0.25rem;
+        align-self: flex-end;
+        margin-bottom: 0.1rem;
     }
     .qre-badge {
         margin-left: auto;
@@ -129,7 +183,41 @@ st.markdown("""
         text-transform: uppercase;
         padding: 0.3rem 0.7rem;
         border-radius: 3px;
+        white-space: nowrap;
     }
+
+    /* ── Expander — replace broken icon text with CSS arrow ── */
+    /* Hide any raw text / svg glyph inside the expander toggle */
+    [data-testid="stExpander"] summary svg,
+    [data-testid="stExpander"] summary span[data-testid="stExpanderToggleIcon"] {
+        display: none !important;
+    }
+    /* Draw the arrow purely in CSS */
+    [data-testid="stExpander"] summary::after {
+        content: '';
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-right: 2px solid var(--text2);
+        border-bottom: 2px solid var(--text2);
+        transform: rotate(45deg);
+        margin-left: 0.5rem;
+        transition: transform 0.2s ease;
+        flex-shrink: 0;
+    }
+    /* Rotate when open */
+    [data-testid="stExpander"][open] summary::after,
+    [data-testid="stExpander"] summary[aria-expanded="true"]::after {
+        transform: rotate(-135deg);
+    }
+    [data-testid="stExpander"] summary {
+        display: flex !important;
+        align-items: center !important;
+        color: var(--text2) !important;
+        cursor: pointer !important;
+        list-style: none !important;
+    }
+    [data-testid="stExpander"] summary::-webkit-details-marker { display: none !important; }
 
     /* ── Section labels ──────────────────────────────────── */
     .sec-label {
@@ -284,13 +372,12 @@ st.markdown("""
         color: var(--accent) !important;
     }
 
-    /* ── Expander ────────────────────────────────────────── */
+    /* ── Expander container ──────────────────────────────── */
     [data-testid="stExpander"] {
         background: var(--surface) !important;
         border: 1px solid var(--border) !important;
         border-radius: 4px !important;
     }
-    [data-testid="stExpander"] summary { color: var(--text2) !important; }
 
     /* ── Spinner ─────────────────────────────────────────── */
     [data-testid="stSpinner"] { color: var(--accent) !important; }
@@ -324,13 +411,18 @@ st.markdown("""
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="qre-header">
-  <div>
-    <div class="qre-logo" style="font-family:'Space Grotesk','Trebuchet MS',sans-serif !important;">&lt;&gt; QUANT <span>RISK</span> ENGINE</div>
+  <div class="qre-title-block">
+    <div class="qre-logo" style="font-family:'Space Grotesk','Trebuchet MS',Arial,sans-serif !important;">
+      QUANT <span>RISK</span> ENGINE
+    </div>
+    <div class="qre-subtitle" style="font-family:'Space Grotesk','Trebuchet MS',Arial,sans-serif !important;">
+      Portfolio Optimiser
+    </div>
   </div>
-  <div style="margin-bottom:0.2rem">
-    <div class="qre-tagline">Portfolio Optimiser &nbsp;&ndash;&nbsp; Black-Litterman &nbsp;&ndash;&nbsp; Geopolitical Overlay</div>
+  <div class="qre-tagline">
+    Black-Litterman &nbsp;&mdash;&nbsp; Ledoit-Wolf &nbsp;&mdash;&nbsp; Geopolitical Overlay
   </div>
-  <div class="qre-badge">&#9679; Live Data</div>
+  <div class="qre-badge">&#9679;&nbsp; Live Data</div>
 </div>
 """, unsafe_allow_html=True)
 
