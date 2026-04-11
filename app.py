@@ -443,17 +443,14 @@ with st.sidebar:
     div_penalty = st.slider("L2 Diversification Penalty", 0.0, 2.0, 0.5)
 
     st.divider()
-    # --- ADVANCED PANEL (collapsible, arrow accessible) ---
-    with st.expander("⚙️ Advanced Panel", expanded=False):
-        st.markdown("**Tail Risk Settings**")
-        tail_hedge = st.slider("Tail Risk Hedge (%)", 0, 20, 5, help="% of portfolio allocated to a protective put/call")
-        st.markdown("**Volatility Targeting**")
-        vol_target = st.slider("Target Annual Volatility", 0.05, 0.30, 0.15, step=0.01,
-                               help="If enabled, portfolio would be scaled to this vol level (demo)")
-        st.markdown("**Miscellaneous**")
-        use_esg = st.checkbox("Apply ESG filter (mock)", value=False)
-        if use_esg:
-            st.caption("ESG filter would exclude certain sectors (demo placeholder)")
+    # ── REPLACED ADVANCED PANEL with new Risk Controls Panel ──
+    with st.expander("🔧 Risk Controls Panel", expanded=False):
+        st.slider("Tail Risk Hedge (%)", 0, 20, 5, help="% of portfolio for protective puts")
+        st.slider("Volatility Target (annual)", 0.05, 0.25, 0.15, step=0.01,
+                  format="%.0f%%", help="Portfolio volatility scaling target")
+        st.selectbox("Stress Scenario", ["None", "Market Crash", "Inflation Spike", "Geopolitical Crisis"])
+        st.checkbox("Apply ESG filter", value=False, help="Mock filter – excludes certain sectors")
+        st.caption("These controls extend the base optimisation.")
 
     st.divider()
     debug_mode = st.checkbox("Debug mode", value=False)
