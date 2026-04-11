@@ -10,7 +10,6 @@ from datetime import datetime
 
 warnings.filterwarnings('ignore')
 
-# --- PAGE SETUP (sidebar always expanded) ---
 st.set_page_config(
     page_title="Quant Risk Engine",
     layout="wide",
@@ -58,20 +57,6 @@ st.markdown("""
         padding-right: 2.5rem !important;
         padding-bottom: 4rem !important;
         max-width: 1600px !important;
-    }
-
-    /* ── FORCE SIDEBAR ALWAYS VISIBLE ── */
-    [data-testid="stSidebar"] {
-        min-width: 280px !important;
-        width: 280px !important;
-        transform: none !important;
-        visibility: visible !important;
-        display: block !important;
-        position: relative !important;
-    }
-    [data-testid="stSidebarCollapseButton"],
-    [data-testid="collapsedControl"] {
-        display: none !important;
     }
 
     /* Sidebar expander (Advanced Panel) */
@@ -373,7 +358,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- SIDEBAR (now permanently visible) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.markdown("### Tickers")
     default_tickers = "AAPL, MSFT, JPM, MC.PA, ASML, NESN.SW"
@@ -421,8 +406,7 @@ with st.sidebar:
     st.divider()
     debug_mode = st.checkbox("Debug mode", value=False)
 
-
-# --- DATA FETCHING ---
+# --- DATA FETCHING AND REST OF THE CODE (unchanged) ---
 @st.cache_data(ttl=3600)
 def get_clean_data(tickers, start, end, debug=False):
     today_str = datetime.now().strftime('%Y-%m-%d')
@@ -659,7 +643,6 @@ def weight_table_html(final_weights):
           <div class="wt-pct">{w:.1%}</div>
         </div>"""
     return f'<div class="panel"><div class="panel-title">// Weight Distribution</div>{rows}</div>'
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN EXECUTION
