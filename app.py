@@ -15,7 +15,7 @@ st.set_page_config(
     page_title="Quant Risk Engine",
     layout="wide",
     page_icon="◈",
-    initial_sidebar_state="expanded"      # sidebar starts open
+    initial_sidebar_state="expanded"
 )
 
 st.markdown("""
@@ -60,51 +60,18 @@ st.markdown("""
         max-width: 1600px !important;
     }
 
-    /* ── SIDEBAR ARROW (made very visible) ── */
+    /* ── FORCE SIDEBAR ALWAYS VISIBLE ── */
+    [data-testid="stSidebar"] {
+        min-width: 280px !important;
+        width: 280px !important;
+        transform: none !important;
+        visibility: visible !important;
+        display: block !important;
+        position: relative !important;
+    }
     [data-testid="stSidebarCollapseButton"],
     [data-testid="collapsedControl"] {
-        z-index: 999 !important;
-        position: fixed !important;
-        left: 0 !important;
-        top: 50% !important;
-        transform: translateY(-50%) !important;
-        background: rgba(79,255,176,0.15) !important;
-        border-radius: 0 8px 8px 0 !important;
-        padding: 12px 4px !important;
-        border: 1px solid var(--accent) !important;
-        border-left: none !important;
-        transition: all 0.2s !important;
-    }
-    [data-testid="stSidebarCollapseButton"]:hover,
-    [data-testid="collapsedControl"]:hover {
-        background: rgba(79,255,176,0.35) !important;
-        padding: 12px 8px !important;
-    }
-    [data-testid="stSidebarCollapseButton"] button,
-    [data-testid="collapsedControl"] button {
-        all: unset !important;
-        width: 28px !important;
-        height: 28px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        cursor: pointer !important;
-    }
-    [data-testid="stSidebarCollapseButton"] button *,
-    [data-testid="collapsedControl"] button * {
         display: none !important;
-    }
-    [data-testid="stSidebarCollapseButton"] button::before {
-        content: "◀" !important;
-        font-size: 18px !important;
-        color: var(--accent) !important;
-        font-weight: bold !important;
-    }
-    [data-testid="collapsedControl"] button::before {
-        content: "▶" !important;
-        font-size: 18px !important;
-        color: var(--accent) !important;
-        font-weight: bold !important;
     }
 
     /* Sidebar expander (Advanced Panel) */
@@ -200,7 +167,7 @@ st.markdown("""
         box-shadow: 0 0 8px var(--accent) !important;
     }
 
-    /* Header, KPI, panels etc. (unchanged from original) */
+    /* Header, KPI, panels etc. */
     .qre-header {
         display: flex;
         align-items: center;
@@ -406,7 +373,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- SIDEBAR (now clearly visible with bright arrow) ---
+# --- SIDEBAR (now permanently visible) ---
 with st.sidebar:
     st.markdown("### Tickers")
     default_tickers = "AAPL, MSFT, JPM, MC.PA, ASML, NESN.SW"
@@ -432,7 +399,6 @@ with st.sidebar:
 
     st.divider()
     st.markdown("### Black-Litterman View")
-    # Placeholder for view_ticker; will be updated after data fetch
     view_ticker = st.selectbox("Asset", ticker_list if ticker_list else ["AAPL"], label_visibility="collapsed")
     view_return = st.slider("Expected Return (%)", -20, 40, 10) / 100
     view_conf   = st.slider("Confidence (%)", 10, 100, 50) / 100
@@ -443,7 +409,7 @@ with st.sidebar:
     div_penalty = st.slider("L2 Diversification Penalty", 0.0, 2.0, 0.5)
 
     st.divider()
-    # ── REPLACED ADVANCED PANEL with new Risk Controls Panel ──
+    # ── Collapsible Panel (arrow accessible) ──
     with st.expander("🔧 Risk Controls Panel", expanded=False):
         st.slider("Tail Risk Hedge (%)", 0, 20, 5, help="% of portfolio for protective puts")
         st.slider("Volatility Target (annual)", 0.05, 0.25, 0.15, step=0.01,
@@ -456,7 +422,7 @@ with st.sidebar:
     debug_mode = st.checkbox("Debug mode", value=False)
 
 
-# --- DATA FETCHING (unchanged from original) ---
+# --- DATA FETCHING ---
 @st.cache_data(ttl=3600)
 def get_clean_data(tickers, start, end, debug=False):
     today_str = datetime.now().strftime('%Y-%m-%d')
@@ -723,7 +689,6 @@ try:
     prices      = prices[ticker_list]
     market_caps = {t: market_caps[t] for t in ticker_list if t in market_caps}
 
-    # Ensure view_ticker is valid
     if view_ticker not in ticker_list:
         view_ticker = ticker_list[0]
 
