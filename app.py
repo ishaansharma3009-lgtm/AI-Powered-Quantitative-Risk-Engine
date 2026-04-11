@@ -21,7 +21,7 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&family=IBM+Plex+Mono:wght@300;400;500&display=swap');
 
     /* ── Root & global reset ─────────────────────────────── */
     :root {
@@ -36,8 +36,8 @@ st.markdown("""
         --muted:     #4a4f6a;
         --text:      #e8eaf0;
         --text2:     #8b90ab;
-        --font-head: 'Syne', sans-serif;
-        --font-mono: 'DM Mono', monospace;
+        --font-head: 'Space Grotesk', 'Trebuchet MS', sans-serif;
+        --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
     }
 
     html, body, [data-testid="stAppViewContainer"],
@@ -104,7 +104,7 @@ st.markdown("""
         border-bottom: 1px solid var(--border);
     }
     .qre-logo {
-        font-family: var(--font-head);
+        font-family: 'Space Grotesk', 'Trebuchet MS', Arial, sans-serif !important;
         font-size: 2.6rem;
         font-weight: 800;
         color: var(--text);
@@ -325,12 +325,12 @@ st.markdown("""
 st.markdown("""
 <div class="qre-header">
   <div>
-    <div class="qre-logo">◈ QUANT <span>RISK</span> ENGINE</div>
+    <div class="qre-logo" style="font-family:'Space Grotesk','Trebuchet MS',sans-serif !important;">&lt;&gt; QUANT <span>RISK</span> ENGINE</div>
   </div>
   <div style="margin-bottom:0.2rem">
-    <div class="qre-tagline">Black-Litterman · Ledoit-Wolf · Geopolitical Overlay</div>
+    <div class="qre-tagline">Portfolio Optimiser &nbsp;&ndash;&nbsp; Black-Litterman &nbsp;&ndash;&nbsp; Geopolitical Overlay</div>
   </div>
-  <div class="qre-badge">◉ Live Data</div>
+  <div class="qre-badge">&#9679; Live Data</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -617,7 +617,7 @@ def weight_table_html(final_weights):
           <div class="wt-bar-wrap"><div class="wt-bar" style="width:{bar_pct:.1f}%"></div></div>
           <div class="wt-pct">{w:.1%}</div>
         </div>"""
-    return f'<div class="panel"><div class="panel-title">◈ Weight Distribution</div>{rows}</div>'
+    return f'<div class="panel"><div class="panel-title">// Weight Distribution</div>{rows}</div>'
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -759,12 +759,12 @@ try:
         )
         st.markdown(f"""
         <div class="panel" style="margin-bottom:1rem">
-          <div class="panel-title">◈ Sortino Ratio</div>
+          <div class="panel-title">// Sortino Ratio</div>
           <div class="kpi-value {sortino_cls}" style="font-size:2.4rem">{sortino:.2f}</div>
           <div class="kpi-sub" style="margin-top:0.4rem">downside-risk adjusted</div>
         </div>
         <div class="panel">
-          <div class="panel-title">◈ BL Expected Returns</div>
+          <div class="panel-title">// BL Expected Returns</div>
           {active_tickers_html}
         </div>
         """, unsafe_allow_html=True)
@@ -782,7 +782,7 @@ try:
         if geo_events and geo_intensity > 0.5:
             events_str = " · ".join(geo_events)
             st.markdown(
-                f'<div class="geo-badge">▲ Geo overlay active: {events_str} @ {geo_intensity:.1f}×</div>',
+                f'<div class="geo-badge">GEO OVERLAY ACTIVE: {events_str} @ {geo_intensity:.1f}x</div>',
                 unsafe_allow_html=True)
 
     with wt_col:
@@ -829,7 +829,7 @@ try:
                            "strategy_parameters.csv", "text/csv")
 
     # ── Disclaimer ────────────────────────────────────────────────────────
-    with st.expander("⚠  Risk Disclaimer"):
+    with st.expander("Risk Disclaimer"):
         st.markdown("""
         Educational and research purposes only.
         Past performance is not indicative of future results.
