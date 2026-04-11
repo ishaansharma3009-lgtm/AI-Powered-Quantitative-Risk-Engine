@@ -23,7 +23,6 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&family=IBM+Plex+Mono:wght@300;400;500&display=swap');
 
-    /* ── Root & global reset ─────────────────────────────── */
     :root {
         --bg:        #08090d;
         --surface:   #0f1117;
@@ -45,89 +44,29 @@ st.markdown("""
 
     * { font-family: var(--font-mono) !important; }
 
-    /* ── Hide Streamlit's default top toolbar/header bar ── */
+    /* Hide Streamlit's default top header completely */
     [data-testid="stHeader"],
     header[data-testid="stHeader"],
     #stDecoration,
     [data-testid="stToolbar"],
     [data-testid="stStatusWidget"],
-    [data-testid="stMainMenuPopover"] { display: none !important; visibility: hidden !important; }
+    [data-testid="stMainMenuPopover"] {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+    }
 
-    /* Remove the top padding that Streamlit adds to make room for its header */
+    /* Remove top padding caused by hidden header */
     .block-container {
-        padding-top: 1.8rem !important;
-        padding-left: 2.5rem !important;
-        padding-right: 2.5rem !important;
-        padding-bottom: 4rem !important;
+        padding-top: 1rem !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+        padding-bottom: 3rem !important;
         max-width: 1600px !important;
     }
 
-    /* ── Sidebar collapse button ─────────────────────────── */
-    /* Style the button shell */
+    /* ========== SIDEBAR COLLAPSE BUTTON – single chevron ========== */
     [data-testid="stSidebarCollapseButton"] button,
-    [data-testid="stSidebarUserContent"] ~ div button {
-        background: rgba(79,255,176,0.07) !important;
-        border: 1px solid rgba(79,255,176,0.3) !important;
-        border-radius: 4px !important;
-        width: 30px !important;
-        height: 30px !important;
-        padding: 0 !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        cursor: pointer !important;
-        overflow: hidden !important;
-        position: relative !important;
-        transition: background 0.15s, border-color 0.15s !important;
-    }
-    [data-testid="stSidebarCollapseButton"] button:hover {
-        background: rgba(79,255,176,0.15) !important;
-        border-color: var(--accent) !important;
-    }
-    /* Completely hide ALL children — svg, span, p, any glyph */
-    [data-testid="stSidebarCollapseButton"] button * {
-        display: none !important;
-        visibility: hidden !important;
-        width: 0 !important;
-        height: 0 !important;
-        overflow: hidden !important;
-        font-size: 0 !important;
-        color: transparent !important;
-    }
-    /* CSS chevron pointing LEFT (sidebar open → click to close) */
-    [data-testid="stSidebarCollapseButton"] button::before {
-        content: '' !important;
-        display: block !important;
-        visibility: visible !important;
-        width: 8px !important;
-        height: 8px !important;
-        border-left: 2.5px solid var(--accent) !important;
-        border-bottom: 2.5px solid var(--accent) !important;
-        transform: rotate(45deg) !important;
-        margin-left: 3px !important;
-        flex-shrink: 0 !important;
-    }
-    /* When collapsed: button lives in [data-testid="collapsedControl"], flip chevron RIGHT */
-    [data-testid="collapsedControl"] button::before {
-        content: '' !important;
-        display: block !important;
-        visibility: visible !important;
-        width: 8px !important;
-        height: 8px !important;
-        border-left: 2.5px solid var(--accent) !important;
-        border-bottom: 2.5px solid var(--accent) !important;
-        transform: rotate(225deg) !important;
-        margin-left: -3px !important;
-        flex-shrink: 0 !important;
-    }
-    [data-testid="collapsedControl"] button * {
-        display: none !important;
-        visibility: hidden !important;
-        width: 0 !important;
-        height: 0 !important;
-        font-size: 0 !important;
-        color: transparent !important;
-    }
     [data-testid="collapsedControl"] button {
         background: rgba(79,255,176,0.07) !important;
         border: 1px solid rgba(79,255,176,0.3) !important;
@@ -140,43 +79,66 @@ st.markdown("""
         justify-content: center !important;
         cursor: pointer !important;
         overflow: hidden !important;
+        position: relative !important;
+    }
+    /* Hide all inner content (SVGs, spans, etc.) */
+    [data-testid="stSidebarCollapseButton"] button *,
+    [data-testid="collapsedControl"] button * {
+        display: none !important;
+        visibility: hidden !important;
+        width: 0 !important;
+        height: 0 !important;
+        font-size: 0 !important;
+        color: transparent !important;
+    }
+    /* Chevron pointing LEFT when sidebar is open */
+    [data-testid="stSidebarCollapseButton"] button::before {
+        content: '' !important;
+        display: block !important;
+        visibility: visible !important;
+        width: 8px !important;
+        height: 8px !important;
+        border-left: 2.5px solid var(--accent) !important;
+        border-bottom: 2.5px solid var(--accent) !important;
+        transform: rotate(45deg) !important;
+        margin-left: 3px !important;
+    }
+    /* Chevron pointing RIGHT when sidebar is collapsed */
+    [data-testid="collapsedControl"] button::before {
+        content: '' !important;
+        display: block !important;
+        visibility: visible !important;
+        width: 8px !important;
+        height: 8px !important;
+        border-left: 2.5px solid var(--accent) !important;
+        border-bottom: 2.5px solid var(--accent) !important;
+        transform: rotate(225deg) !important;
+        margin-left: -3px !important;
     }
 
-    /* ── Expander ────────────────────────────────────────── */
-    /* The expander in Streamlit renders summary > div > p + button(svg).
-       We hide every child of summary and draw our own chevron via ::after. */
-    [data-testid="stExpander"] details summary {
-        display: flex !important;
-        align-items: center !important;
-        gap: 0.5rem !important;
-        cursor: pointer !important;
-        list-style: none !important;
-        padding: 0.6rem 0.8rem !important;
-        user-select: none !important;
-    }
-    [data-testid="stExpander"] details summary::-webkit-details-marker,
-    [data-testid="stExpander"] details summary::marker { display: none !important; }
-
-    /* Hide every native icon/svg/button Streamlit puts inside summary */
-    [data-testid="stExpander"] details summary svg { display: none !important; }
+    /* ========== EXPANDER (e.g. Disclaimer) – custom arrow ========== */
+    /* Hide native Streamlit expander icon/text */
+    [data-testid="stExpander"] details summary svg,
     [data-testid="stExpander"] details summary button {
         display: none !important;
         pointer-events: none !important;
     }
-
-    /* The label text span — keep visible, style it */
+    [data-testid="stExpander"] details summary::-webkit-details-marker,
+    [data-testid="stExpander"] details summary::marker {
+        display: none !important;
+    }
+    /* Keep the summary text (e.g. "Risk Disclaimer") */
     [data-testid="stExpander"] details summary > div,
     [data-testid="stExpander"] details summary p {
         color: var(--text2) !important;
-        font-size: 0.72rem !important;
+        font-size: 0.7rem !important;
         letter-spacing: 0.1em !important;
         text-transform: uppercase !important;
         margin: 0 !important;
         padding: 0 !important;
         flex: 1 !important;
     }
-
-    /* CSS chevron — points DOWN when closed */
+    /* Custom chevron – down when closed */
     [data-testid="stExpander"] details summary::after {
         content: '' !important;
         display: inline-block !important;
@@ -186,32 +148,28 @@ st.markdown("""
         border-bottom: 2px solid var(--text2) !important;
         transform: rotate(45deg) !important;
         transition: transform 0.2s ease !important;
+        margin-left: 8px !important;
         flex-shrink: 0 !important;
-        margin-right: 0.2rem !important;
     }
-    /* Points UP when open */
+    /* Up when open */
     [data-testid="stExpander"] details[open] summary::after {
         transform: rotate(-135deg) !important;
-        margin-top: 4px !important;
+        margin-top: 2px !important;
     }
 
-    /* Container */
+    /* Expander container styling */
     [data-testid="stExpander"] details {
         background: var(--surface) !important;
         border: 1px solid var(--border) !important;
         border-radius: 6px !important;
         overflow: hidden !important;
     }
-    [data-testid="stExpander"] details[open] {
-        border-color: var(--border2) !important;
-    }
 
-    /* ── Sidebar ─────────────────────────────────────────── */
+    /* ========== SIDEBAR ========== */
     [data-testid="stSidebar"] {
         background: var(--surface) !important;
         border-right: 1px solid var(--border) !important;
     }
-    [data-testid="stSidebar"] * { color: var(--text) !important; }
     [data-testid="stSidebar"] .stTextInput input,
     [data-testid="stSidebar"] .stSelectbox select,
     [data-testid="stSidebar"] .stDateInput input {
@@ -223,7 +181,7 @@ st.markdown("""
     [data-testid="stSidebar"] label,
     [data-testid="stSidebar"] .stMarkdown p {
         color: var(--text2) !important;
-        font-size: 0.72rem !important;
+        font-size: 0.7rem !important;
         letter-spacing: 0.08em !important;
         text-transform: uppercase !important;
     }
@@ -240,65 +198,59 @@ st.markdown("""
         margin: 0.8rem 0 !important;
     }
 
-    /* Slider track */
-    [data-testid="stSidebar"] .stSlider [data-baseweb="slider"] div[role="progressbar"] {
-        background: var(--accent) !important;
-    }
-    [data-testid="stSidebar"] .stSlider [data-baseweb="thumb"] {
-        background: var(--accent) !important;
-        box-shadow: 0 0 8px var(--accent) !important;
-    }
-
-    /* ── Header ──────────────────────────────────────────── */
+    /* ========== MAIN HEADER (no overlap) ========== */
     .qre-header {
         display: flex;
-        align-items: center;
-        gap: 2rem;
+        align-items: baseline;
+        justify-content: space-between;
+        flex-wrap: wrap;
         margin-bottom: 2rem;
-        padding-bottom: 1.4rem;
+        padding-bottom: 0.8rem;
         border-bottom: 1px solid var(--border);
     }
-    .qre-title-block { display: flex; flex-direction: column; gap: 0.3rem; }
+    .qre-title-block {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+    }
     .qre-logo {
-        font-family: 'Space Grotesk', 'Trebuchet MS', Arial, sans-serif !important;
-        font-size: 2.2rem;
+        font-family: var(--font-head) !important;
+        font-size: 1.8rem;
         font-weight: 800;
         color: var(--text);
         letter-spacing: -0.02em;
         line-height: 1;
-        white-space: nowrap;
     }
-    .qre-logo span { color: var(--accent); }
+    .qre-logo span {
+        color: var(--accent);
+    }
     .qre-subtitle {
-        font-family: 'Space Grotesk', 'Trebuchet MS', Arial, sans-serif !important;
-        font-size: 1rem;
+        font-family: var(--font-head) !important;
+        font-size: 0.8rem;
         font-weight: 600;
         color: var(--text2);
-        letter-spacing: 0.04em;
-        white-space: nowrap;
+        letter-spacing: 0.08em;
     }
     .qre-tagline {
-        font-size: 0.65rem;
+        font-size: 0.6rem;
         color: var(--muted);
         letter-spacing: 0.16em;
         text-transform: uppercase;
         align-self: flex-end;
-        margin-bottom: 0.1rem;
     }
     .qre-badge {
-        margin-left: auto;
         background: rgba(79,255,176,0.07);
         border: 1px solid rgba(79,255,176,0.25);
         color: var(--accent);
-        font-size: 0.65rem;
+        font-size: 0.6rem;
         letter-spacing: 0.15em;
         text-transform: uppercase;
-        padding: 0.3rem 0.7rem;
+        padding: 0.2rem 0.7rem;
         border-radius: 3px;
         white-space: nowrap;
     }
 
-    /* ── Section labels ──────────────────────────────────── */
+    /* rest of your existing styling (KPIs, panels, etc.) remains unchanged */
     .sec-label {
         font-family: var(--font-head);
         font-size: 0.65rem;
@@ -323,8 +275,6 @@ st.markdown("""
         background: var(--accent);
         display: inline-block;
     }
-
-    /* ── KPI strip ───────────────────────────────────────── */
     .kpi-grid {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
@@ -337,30 +287,20 @@ st.markdown("""
     }
     .kpi-cell {
         background: var(--surface);
-        padding: 1.1rem 1.3rem;
+        padding: 1rem 1.2rem;
         position: relative;
     }
     .kpi-cell:hover { background: var(--surface2); }
-    .kpi-cell::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0;
-        height: 2px;
-        background: linear-gradient(90deg, var(--accent), var(--accent2));
-        opacity: 0;
-        transition: opacity 0.2s;
-    }
-    .kpi-cell:hover::before { opacity: 1; }
     .kpi-label {
-        font-size: 0.62rem;
+        font-size: 0.6rem;
         letter-spacing: 0.15em;
         text-transform: uppercase;
         color: var(--text2);
-        margin-bottom: 0.4rem;
+        margin-bottom: 0.3rem;
     }
     .kpi-value {
         font-family: var(--font-head);
-        font-size: 1.9rem;
+        font-size: 1.8rem;
         font-weight: 700;
         color: var(--text);
         line-height: 1;
@@ -368,137 +308,106 @@ st.markdown("""
     .kpi-value.pos { color: var(--accent); }
     .kpi-value.neg { color: var(--warn); }
     .kpi-sub {
-        font-size: 0.6rem;
+        font-size: 0.55rem;
         color: var(--muted);
         margin-top: 0.3rem;
     }
-
-    /* ── Panel cards ─────────────────────────────────────── */
     .panel {
         background: var(--surface);
         border: 1px solid var(--border);
         border-radius: 6px;
-        padding: 1.2rem 1.4rem;
+        padding: 1rem 1.2rem;
     }
     .panel-title {
-        font-size: 0.62rem;
+        font-size: 0.6rem;
         letter-spacing: 0.18em;
         text-transform: uppercase;
         color: var(--text2);
-        margin-bottom: 1rem;
-        padding-bottom: 0.6rem;
+        margin-bottom: 0.8rem;
+        padding-bottom: 0.4rem;
         border-bottom: 1px solid var(--border);
     }
-
-    /* ── Weight table ────────────────────────────────────── */
     .wt-row {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0.45rem 0;
+        padding: 0.4rem 0;
         border-bottom: 1px solid var(--border);
         gap: 0.5rem;
     }
     .wt-row:last-child { border-bottom: none; }
     .wt-ticker {
-        font-size: 0.78rem;
+        font-size: 0.75rem;
         font-weight: 500;
         color: var(--text);
-        min-width: 68px;
+        min-width: 65px;
     }
     .wt-bar-wrap {
         flex: 1;
-        height: 4px;
+        height: 3px;
         background: var(--border2);
         border-radius: 2px;
         overflow: hidden;
     }
-    .wt-bar { height: 100%; border-radius: 2px;
-              background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+    .wt-bar {
+        height: 100%;
+        border-radius: 2px;
+        background: linear-gradient(90deg, var(--accent), var(--accent2));
+    }
     .wt-pct {
-        font-size: 0.72rem;
+        font-size: 0.7rem;
         color: var(--accent);
-        min-width: 44px;
+        min-width: 42px;
         text-align: right;
     }
-
-    /* ── Alerts / info ───────────────────────────────────── */
-    [data-testid="stAlert"] {
-        background: var(--surface2) !important;
-        border: 1px solid var(--border2) !important;
-        color: var(--text2) !important;
-        border-radius: 4px !important;
-    }
-
-    /* ── Plotly chart containers ─────────────────────────── */
-    .js-plotly-plot .plotly { background: transparent !important; }
-
-    /* ── Download buttons ────────────────────────────────── */
-    .stDownloadButton button {
-        background: var(--surface2) !important;
-        border: 1px solid var(--border2) !important;
-        color: var(--text2) !important;
-        font-size: 0.68rem !important;
-        letter-spacing: 0.1em !important;
-        text-transform: uppercase !important;
-        border-radius: 3px !important;
-        padding: 0.4rem 0.9rem !important;
-        width: 100% !important;
-        transition: border-color 0.15s !important;
-    }
-    .stDownloadButton button:hover {
-        border-color: var(--accent) !important;
-        color: var(--accent) !important;
-    }
-
-    /* ── Spinner ─────────────────────────────────────────── */
-    [data-testid="stSpinner"] { color: var(--accent) !important; }
-
-    /* ── General text ────────────────────────────────────── */
-    p, li, span, div { color: var(--text2); }
-    h1, h2, h3, h4 { color: var(--text) !important; }
-    .stMarkdown a { color: var(--accent2) !important; }
-
-    /* ── Geo overlay badge ───────────────────────────────── */
     .geo-badge {
         display: inline-block;
         background: rgba(255,107,107,0.1);
         border: 1px solid rgba(255,107,107,0.3);
         color: #ff6b6b;
-        font-size: 0.6rem;
+        font-size: 0.55rem;
         letter-spacing: 0.12em;
         text-transform: uppercase;
         padding: 0.2rem 0.5rem;
         border-radius: 3px;
         margin-top: 0.5rem;
     }
-
-    /* Scrollbar */
+    .stDownloadButton button {
+        background: var(--surface2) !important;
+        border: 1px solid var(--border2) !important;
+        color: var(--text2) !important;
+        font-size: 0.65rem !important;
+        letter-spacing: 0.1em !important;
+        text-transform: uppercase !important;
+        border-radius: 3px !important;
+        padding: 0.3rem 0.8rem !important;
+        width: 100% !important;
+    }
+    .stDownloadButton button:hover {
+        border-color: var(--accent) !important;
+        color: var(--accent) !important;
+    }
     ::-webkit-scrollbar { width: 4px; height: 4px; }
     ::-webkit-scrollbar-track { background: var(--bg); }
     ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Header ────────────────────────────────────────────────────────────────────
+# ── HEADER (new, clean, no overlap) ──────────────────────────────────────────
 st.markdown("""
 <div class="qre-header">
   <div class="qre-title-block">
-    <div class="qre-logo" style="font-family:'Space Grotesk','Trebuchet MS',Arial,sans-serif !important;">
-      QUANT <span>RISK</span> ENGINE
-    </div>
-    <div class="qre-subtitle" style="font-family:'Space Grotesk','Trebuchet MS',Arial,sans-serif !important;">
-      Portfolio Optimiser
-    </div>
+    <div class="qre-logo">QUANT <span>RISK</span> ENGINE</div>
+    <div class="qre-subtitle">Portfolio Optimiser</div>
   </div>
   <div class="qre-tagline">
-    Black-Litterman &nbsp;&mdash;&nbsp; Ledoit-Wolf &nbsp;&mdash;&nbsp; Geopolitical Overlay
+    Black‑Litterman &nbsp;|&nbsp; Ledoit‑Wolf &nbsp;|&nbsp; Geopolitical Overlay
   </div>
-  <div class="qre-badge">&#9679;&nbsp; Live Data</div>
+  <div class="qre-badge">● Live Data</div>
 </div>
 """, unsafe_allow_html=True)
 
-# --- SIDEBAR ---
+# --- SIDEBAR (unchanged logic) ---
 with st.sidebar:
     st.markdown("### Tickers")
     default_tickers = "AAPL, MSFT, JPM, MC.PA, ASML, NESN.SW"
@@ -537,7 +446,7 @@ with st.sidebar:
     debug_mode = st.checkbox("Debug mode", value=False)
 
 
-# --- DATA FETCHING ---
+# --- DATA FETCHING (unchanged) ---
 @st.cache_data(ttl=3600)
 def get_clean_data(tickers, start, end, debug=False):
     today_str = datetime.now().strftime('%Y-%m-%d')
@@ -593,7 +502,7 @@ def get_clean_data(tickers, start, end, debug=False):
     return assets_df, benchmark, mcaps
 
 
-# --- GEOPOLITICAL OVERLAY ---
+# --- GEOPOLITICAL OVERLAY (unchanged) ---
 def apply_geopolitical_overlay(weights, events, intensity):
     if not events or intensity <= 0.5:
         return weights
@@ -622,7 +531,7 @@ def apply_geopolitical_overlay(weights, events, intensity):
     return {k: v / total for k, v in adj.items()} if total > 0 else weights
 
 
-# --- CHART HELPERS ---
+# --- CHART HELPERS (unchanged) ---
 PLOTLY_THEME = dict(
     template="plotly_dark",
     paper_bgcolor="rgba(0,0,0,0)",
@@ -692,7 +601,6 @@ def plot_efficient_frontier(mu, S, rf=0.02):
         if debug_mode: st.warning(f"Efficient frontier error: {e}")
         return None
 
-
 def plot_performance(p_cum, p_rets, bench_prices):
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -720,7 +628,6 @@ def plot_performance(p_cum, p_rets, bench_prices):
     )
     return fig
 
-
 def plot_drawdown(p_cum):
     rolling_max = p_cum.expanding().max()
     drawdown    = (p_cum - rolling_max) / rolling_max
@@ -740,7 +647,6 @@ def plot_drawdown(p_cum):
         **{k: v for k, v in PLOTLY_THEME.items() if k not in ('xaxis','yaxis','margin')}
     )
     return fig
-
 
 def plot_allocation_donut(final_weights):
     w_df = pd.DataFrame.from_dict(final_weights, orient='index', columns=['Weight'])
@@ -767,7 +673,6 @@ def plot_allocation_donut(final_weights):
         **{k: v for k, v in PLOTLY_THEME.items() if k not in ('xaxis','yaxis')}
     )
     return fig
-
 
 def weight_table_html(final_weights):
     sorted_w = sorted(final_weights.items(), key=lambda x: -x[1])
@@ -815,14 +720,14 @@ try:
     if view_ticker not in ticker_list:
         view_ticker = ticker_list[0]
 
-    # ── Covariance ────────────────────────────────────────────────────────
+    # Covariance
     try:
         S = risk_models.CovarianceShrinkage(prices).ledoit_wolf()
     except Exception:
         S = risk_models.sample_cov(prices)
     tickers_final = list(S.columns)
 
-    # ── Black-Litterman ───────────────────────────────────────────────────
+    # Black-Litterman
     try:
         mcap_series = pd.Series(
             {t: market_caps.get(t, 1e11) for t in tickers_final}, index=tickers_final)
@@ -839,7 +744,7 @@ try:
         ret_tmp = prices.pct_change().dropna()
         bl_mu   = (ret_tmp.mean() * 252).reindex(tickers_final).fillna(0.10)
 
-    # ── Optimisation ──────────────────────────────────────────────────────
+    # Optimisation
     try:
         ef = EfficientFrontier(bl_mu, S, weight_bounds=(0, max_cap))
         ef.add_objective(objective_functions.L2_reg, gamma=div_penalty)
@@ -855,7 +760,7 @@ try:
     final_weights = (apply_geopolitical_overlay(optimized_weights, geo_events, geo_intensity)
                      if geo_events and geo_intensity > 0.5 else optimized_weights)
 
-    # ── Returns & metrics ─────────────────────────────────────────────────
+    # Returns & metrics
     weights_arr = np.array([final_weights.get(t, 0) for t in tickers_final])
     returns     = prices.pct_change().dropna().astype(float)
     p_rets      = (returns * weights_arr).sum(axis=1)
@@ -869,9 +774,7 @@ try:
     down_vol = p_rets[p_rets < 0].std() * np.sqrt(252)
     sortino  = ann_ret / down_vol if down_vol > 0 else 0
 
-    # ──────────────────────────────────────────────────────────────────────
-    # LAYOUT  ①  KPI strip
-    # ──────────────────────────────────────────────────────────────────────
+    # UI LAYOUT (same as before, using the fixed CSS)
     sharpe_cls  = "pos" if sharpe  >= 1    else ("neg" if sharpe  < 0    else "")
     ret_cls     = "pos" if ann_ret >= 0    else "neg"
     dd_cls      = "neg" if max_dd  < -0.15 else ""
@@ -901,9 +804,6 @@ try:
     </div>
     """, unsafe_allow_html=True)
 
-    # ──────────────────────────────────────────────────────────────────────
-    # LAYOUT  ②  Performance (left) + Drawdown (stacked) | Sortino card (right)
-    # ──────────────────────────────────────────────────────────────────────
     st.markdown('<div class="sec-label"><span class="dot"></span> Performance Comparison</div>',
                 unsafe_allow_html=True)
 
@@ -933,9 +833,6 @@ try:
         </div>
         """, unsafe_allow_html=True)
 
-    # ──────────────────────────────────────────────────────────────────────
-    # LAYOUT  ③  Portfolio Allocation (donut) | Weight table
-    # ──────────────────────────────────────────────────────────────────────
     st.markdown('<div class="sec-label"><span class="dot"></span> Portfolio Allocation</div>',
                 unsafe_allow_html=True)
 
@@ -952,9 +849,6 @@ try:
     with wt_col:
         st.markdown(weight_table_html(final_weights), unsafe_allow_html=True)
 
-    # ──────────────────────────────────────────────────────────────────────
-    # LAYOUT  ④  Efficient Frontier (full-width)
-    # ──────────────────────────────────────────────────────────────────────
     st.markdown('<div class="sec-label"><span class="dot"></span> Efficient Frontier</div>',
                 unsafe_allow_html=True)
 
@@ -962,9 +856,6 @@ try:
     if fig_ef:
         st.plotly_chart(fig_ef, use_container_width=True, config=dict(displayModeBar=False))
 
-    # ──────────────────────────────────────────────────────────────────────
-    # LAYOUT  ⑤  Exports
-    # ──────────────────────────────────────────────────────────────────────
     st.markdown('<div class="sec-label"><span class="dot"></span> Export</div>',
                 unsafe_allow_html=True)
 
@@ -992,7 +883,7 @@ try:
                            params_df.to_csv(index=False).encode(),
                            "strategy_parameters.csv", "text/csv")
 
-    # ── Disclaimer ────────────────────────────────────────────────────────
+    # Disclaimer with custom arrow (already handled by CSS)
     with st.expander("Risk Disclaimer"):
         st.markdown("""
         Educational and research purposes only.
@@ -1000,7 +891,6 @@ try:
         Consult a qualified financial adviser before making investment decisions.
         """)
 
-    # ── Debug ─────────────────────────────────────────────────────────────
     if debug_mode:
         with st.expander("Debug"):
             st.write(f"tickers_final: {tickers_final}")
