@@ -396,11 +396,11 @@ with st.sidebar:
     div_penalty = st.slider("L2 Diversification Penalty", 0.0, 2.0, 0.5)
 
     st.divider()
-    debug_mode = st.checkbox("Debug mode", value=False)
+    # Debug checkbox removed
 
-# --- DATA FETCHING AND REST OF THE CODE (unchanged) ---
+# --- DATA FETCHING (debug parameter removed) ---
 @st.cache_data(ttl=3600)
-def get_clean_data(tickers, start, end, debug=False):
+def get_clean_data(tickers, start, end):
     today_str = datetime.now().strftime('%Y-%m-%d')
     start_str = start.strftime('%Y-%m-%d') if hasattr(start, 'strftime') else str(start)
     end_str   = end.strftime('%Y-%m-%d')   if hasattr(end,   'strftime') else str(end)
@@ -427,8 +427,7 @@ def get_clean_data(tickers, start, end, debug=False):
                     if len(series) > 5:
                         close_prices[t] = series
                         break
-            except Exception as e:
-                if debug: st.warning(f"Attempt {attempt+1} for {t}: {e}")
+            except Exception:
                 time.sleep(0.5)
 
     if not close_prices:
@@ -545,8 +544,7 @@ def plot_efficient_frontier(mu, S, rf=0.02):
             **{k: v for k, v in PLOTLY_THEME.items() if k not in ('xaxis','yaxis')}
         )
         return fig
-    except Exception as e:
-        if debug_mode: st.warning(f"Efficient frontier error: {e}")
+    except Exception:
         return None
 
 def plot_performance(p_cum, p_rets, bench_prices):
@@ -646,7 +644,7 @@ try:
 
     with st.spinner("Fetching market data…"):
         prices, bench_prices, market_caps = get_clean_data(
-            ticker_list, start_date, end_date, debug=debug_mode)
+            ticker_list, start_date, end_date)
 
     if prices.empty:
         st.error("No data returned. Check ticker symbols and date range.")
@@ -849,16 +847,8 @@ try:
     </div>
     """, unsafe_allow_html=True)
 
-    if debug_mode:
-        with st.expander("Debug"):
-            st.write(f"tickers_final: {tickers_final}")
-            st.write(f"S.columns: {list(S.columns)}")
-            st.write(f"bl_mu.index: {list(bl_mu.index)}")
-            st.write(f"prices shape: {prices.shape}")
-            st.dataframe(prices.tail(3))
-
 except Exception as e:
     st.error(f"Engine Error: {e}")
-    with st.expander("Traceback", expanded=debug_mode):
+    with st.expander("Traceback"):
         import traceback
         st.code(traceback.format_exc())
