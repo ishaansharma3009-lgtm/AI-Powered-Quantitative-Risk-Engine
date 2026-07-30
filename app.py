@@ -363,7 +363,7 @@ st.markdown("""
 # --- SIDEBAR (permanently visible) ---
 with st.sidebar:
     st.markdown("### Tickers")
-    default_tickers = "AAPL, MSFT, JPM, MC.PA, ASML, NESN.SW"
+    default_tickers = "AAPL, MSFT, JPM, TCS.BO, INFY.BO, ASML"
     assets = st.text_input("Comma-separated", default_tickers, label_visibility="collapsed")
     ticker_list = [t.strip().upper() for t in assets.split(",") if t.strip()]
 
@@ -378,7 +378,7 @@ with st.sidebar:
     geo_events = st.multiselect(
         "Active events",
         ["US-China Tech Tensions", "EU Regulation Shift", "Middle East Instability",
-         "Supply Chain Disruption", "Currency Volatility", "Trade Policy Changes"],
+         "Supply Chain Disruption", "Currency Volatility", "Trade Policy Changes", "India Policy"],
         default=["US-China Tech Tensions"],
         label_visibility="collapsed"
     )
@@ -396,9 +396,8 @@ with st.sidebar:
     div_penalty = st.slider("L2 Diversification Penalty", 0.0, 2.0, 0.5)
 
     st.divider()
-    # Debug checkbox removed
 
-# --- DATA FETCHING (debug parameter removed) ---
+# --- DATA FETCHING ---
 @st.cache_data(ttl=3600)
 def get_clean_data(tickers, start, end):
     today_str = datetime.now().strftime('%Y-%m-%d')
@@ -444,10 +443,18 @@ def get_clean_data(tickers, start, end):
     if assets_df.empty or len(assets_df) < 10:
         return pd.DataFrame(), pd.Series(), {}
 
+    # Enhanced market caps with Indian stocks
     fixed_caps = {
-        'AAPL':3000,'MSFT':2800,'JPM':500,'MC.PA':400,'ASML':350,'NESN.SW':300,
-        'GOOGL':1800,'AMZN':1600,'TSLA':600,'NVDA':2200,'V':500,'JNJ':380,
-        'XOM':400,'WMT':450,'PG':350,'MA':400
+        # US Tech
+        'AAPL':3000,'MSFT':2800,'GOOGL':1800,'AMZN':1600,'TSLA':600,'NVDA':2200,
+        # US Financials & Other
+        'JPM':500,'V':500,'MA':400,'JNJ':380,'XOM':400,'WMT':450,'PG':350,
+        # Europe
+        'MC.PA':400,'ASML':350,'NESN.SW':300,
+        # Indian stocks (BSE/NSE)
+        'TCS.BO':200,'INFY.BO':180,'RELIANCE.BO':250,'HDFC.BO':150,'ICICIBANK.BO':120,
+        'HDFCBANK.BO':140,'ITC.BO':80,'SBIN.BO':110,'BAJAJFINSV.BO':100,'MARUTI.BO':90,
+        'WIPRO.BO':70,'AXISBANK.BO':95,'LT.BO':85,'BHARTIARTL.BO':75,'SUNPHARMA.BO':65
     }
     mcaps = {t: fixed_caps.get(t, 100) * 1e9 for t in assets_df.columns}
     return assets_df, benchmark, mcaps
@@ -455,27 +462,42 @@ def get_clean_data(tickers, start, end):
 def apply_geopolitical_overlay(weights, events, intensity):
     if not events or intensity <= 0.5:
         return weights
+    
+    # Enhanced sector risk with India-specific events
     sector_risk = {
-        'Technology':    {'US-China Tech Tensions':0.8,'Supply Chain Disruption':0.7,'Trade Policy Changes':0.6},
-        'Financials':    {'Currency Volatility':0.6,'Middle East Instability':0.3,'Trade Policy Changes':0.4},
-        'Semiconductors':{'US-China Tech Tensions':0.9,'Supply Chain Disruption':0.8,'Trade Policy Changes':0.7},
-        'Healthcare':    {'EU Regulation Shift':0.5,'Trade Policy Changes':0.3},
-        'Automotive':    {'Supply Chain Disruption':0.9,'Trade Policy Changes':0.7},
-        'Consumer':      {'Supply Chain Disruption':0.5,'Currency Volatility':0.3},
-        'Energy':        {'Middle East Instability':0.8,'Trade Policy Changes':0.6},
+        'Technology':    {'US-China Tech Tensions':0.8,'Supply Chain Disruption':0.7,'Trade Policy Changes':0.6,'India Policy':0.2},
+        'Financials':    {'Currency Volatility':0.6,'Middle East Instability':0.3,'Trade Policy Changes':0.4,'India Policy':0.3},
+        'Semiconductors':{'US-China Tech Tensions':0.9,'Supply Chain Disruption':0.8,'Trade Policy Changes':0.7,'India Policy':0.2},
+        'Healthcare':    {'EU Regulation Shift':0.5,'Trade Policy Changes':0.3,'India Policy':0.2},
+        'Automotive':    {'Supply Chain Disruption':0.9,'Trade Policy Changes':0.7,'India Policy':0.3},
+        'Consumer':      {'Supply Chain Disruption':0.5,'Currency Volatility':0.3,'India Policy':0.4},
+        'Energy':        {'Middle East Instability':0.8,'Trade Policy Changes':0.6,'India Policy':0.2},
+        'IT Services':   {'US-China Tech Tensions':0.4,'India Policy':0.5,'Trade Policy Changes':0.5},
+        'Banking':       {'Currency Volatility':0.7,'India Policy':0.4,'Trade Policy Changes':0.3},
+        'Pharma':        {'EU Regulation Shift':0.6,'India Policy':0.3,'Trade Policy Changes':0.4},
     }
+    
     ticker_sectors = {
         'AAPL':'Technology','MSFT':'Technology','JPM':'Financials','MC.PA':'Consumer',
         'ASML':'Semiconductors','NESN.SW':'Healthcare','GOOGL':'Technology','AMZN':'Technology',
         'TSLA':'Automotive','NVDA':'Semiconductors','V':'Financials','JNJ':'Healthcare',
         'XOM':'Energy','WMT':'Consumer','PG':'Consumer','MA':'Financials',
+        # Indian stocks
+        'TCS.BO':'IT Services','INFY.BO':'IT Services','RELIANCE.BO':'Energy','HDFC.BO':'Banking',
+        'ICICIBANK.BO':'Banking','HDFCBANK.BO':'Banking','ITC.BO':'Consumer','SBIN.BO':'Banking',
+        'BAJAJFINSV.BO':'Financials','MARUTI.BO':'Automotive','WIPRO.BO':'IT Services',
+        'AXISBANK.BO':'Banking','LT.BO':'Automotive','BHARTIARTL.BO':'Consumer','SUNPHARMA.BO':'Pharma'
     }
+    
     adj = {}
     for ticker, w in weights.items():
-        if w == 0: adj[ticker] = 0; continue
-        sector = ticker_sectors.get(ticker, 'Technology')
+        if w == 0: 
+            adj[ticker] = 0
+            continue
+        sector = ticker_sectors.get(ticker, 'Technology')  # Default fallback
         risk_score = sum(sector_risk.get(sector, {}).get(e, 0.1) for e in events)
         adj[ticker] = max(0.01, w * (1 - risk_score * intensity * 0.15))
+    
     total = sum(adj.values())
     return {k: v / total for k, v in adj.items()} if total > 0 else weights
 
@@ -639,7 +661,7 @@ def weight_table_html(final_weights):
 # ═══════════════════════════════════════════════════════════════════════════════
 try:
     if not ticker_list:
-        st.info("Enter tickers in the sidebar to begin.")
+        st.info("Enter tickers in the sidebar to begin. Use format: AAPL, TCS.BO, INFY.BO")
         st.stop()
 
     with st.spinner("Fetching market data…"):
@@ -647,13 +669,13 @@ try:
             ticker_list, start_date, end_date)
 
     if prices.empty:
-        st.error("No data returned. Check ticker symbols and date range.")
+        st.error("No data returned. Check ticker symbols (use .BO for BSE, .NS for NSE) and date range.")
         st.stop()
 
     available = [t for t in ticker_list if t in prices.columns]
     missing   = set(ticker_list) - set(available)
     if missing:
-        st.warning(f"Tickers not found: {', '.join(sorted(missing))}")
+        st.warning(f"Tickers not found: {', '.join(sorted(missing))} (use .BO for BSE, .NS for NSE India stocks)")
     if not available:
         st.error("None of the entered tickers returned valid data.")
         st.stop()
