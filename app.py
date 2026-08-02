@@ -5,6 +5,7 @@ import numpy as np
 from pypfopt import risk_models, EfficientFrontier, black_litterman, objective_functions
 import plotly.graph_objects as go
 import time
+import random
 import warnings
 from datetime import datetime
 
@@ -42,7 +43,6 @@ st.markdown("""
 
     * { font-family: var(--font-mono) !important; }
 
-    /* Hide Streamlit's default top toolbar/header bar */
     [data-testid="stHeader"],
     header[data-testid="stHeader"],
     #stDecoration,
@@ -50,7 +50,6 @@ st.markdown("""
     [data-testid="stStatusWidget"],
     [data-testid="stMainMenuPopover"] { display: none !important; visibility: hidden !important; }
 
-    /* Remove top padding */
     .block-container {
         padding-top: 1.8rem !important;
         padding-left: 2.5rem !important;
@@ -59,7 +58,6 @@ st.markdown("""
         max-width: 1600px !important;
     }
 
-    /* ── FORCE SIDEBAR ALWAYS VISIBLE (no collapse button) ── */
     [data-testid="stSidebar"] {
         min-width: 280px !important;
         width: 280px !important;
@@ -73,7 +71,6 @@ st.markdown("""
         display: none !important;
     }
 
-    /* Custom disclaimer dropdown (no box, bullet points) */
     .disclaimer-dropdown {
         margin-top: 2rem;
         font-size: 0.7rem;
@@ -111,7 +108,6 @@ st.markdown("""
         line-height: 1.4;
     }
 
-    /* Sidebar styling */
     [data-testid="stSidebar"] {
         background: var(--surface) !important;
         border-right: 1px solid var(--border) !important;
@@ -145,7 +141,6 @@ st.markdown("""
         margin: 0.8rem 0 !important;
     }
 
-    /* Slider track */
     [data-testid="stSidebar"] .stSlider [data-baseweb="slider"] div[role="progressbar"] {
         background: var(--accent) !important;
     }
@@ -154,7 +149,6 @@ st.markdown("""
         box-shadow: 0 0 8px var(--accent) !important;
     }
 
-    /* Header, KPI, panels etc. */
     .qre-header {
         display: flex;
         align-items: center;
@@ -336,6 +330,14 @@ st.markdown("""
         margin-top: 0.5rem;
     }
 
+    .resolve-note {
+        font-size: 0.62rem;
+        color: var(--muted);
+        margin-top: 0.4rem;
+        letter-spacing: 0.03em;
+    }
+    .resolve-note b { color: var(--accent); }
+
     ::-webkit-scrollbar { width: 4px; height: 4px; }
     ::-webkit-scrollbar-track { background: var(--bg); }
     ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
@@ -360,12 +362,85 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# ═══════════════════════════════════════════════════════════════════════
+# GLOBAL EXCHANGE SUFFIX MAP
+# Used to auto-resolve a bare ticker (or a wrong suffix) to the correct
+# Yahoo Finance listing across major world markets.
+# ═══════════════════════════════════════════════════════════════════════
+EXCHANGE_SUFFIXES = [
+    "",       # US markets (NYSE / NASDAQ) — no suffix
+    ".NS",    # India — NSE
+    ".BO",    # India — BSE
+    ".T",     # Japan — Tokyo
+    ".KS",    # South Korea — KOSPI
+    ".KQ",    # South Korea — KOSDAQ
+    ".HK",    # Hong Kong
+    ".SS",    # China — Shanghai
+    ".SZ",    # China — Shenzhen
+    ".TW",    # Taiwan
+    ".SI",    # Singapore
+    ".AX",    # Australia
+    ".NZ",    # New Zealand
+    ".L",     # UK — London
+    ".DE",    # Germany
+    ".PA",    # France
+    ".AS",    # Netherlands
+    ".SW",    # Switzerland
+    ".MI",    # Italy
+    ".MC",    # Spain
+    ".LS",    # Portugal
+    ".ST",    # Sweden
+    ".OL",    # Norway
+    ".CO",    # Denmark
+    ".HE",    # Finland
+    ".VI",    # Austria
+    ".BR",    # Belgium
+    ".IR",    # Ireland
+    ".IS",    # Turkey
+    ".TA",    # Israel
+    ".SR",    # Saudi Arabia — Tadawul
+    ".QA",    # Qatar
+    ".AE",    # UAE
+    ".KW",    # Kuwait
+    ".BH",    # Bahrain
+    ".ZA",    # South Africa (some feeds)
+    ".JO",    # South Africa — Johannesburg
+    ".TO",    # Canada — Toronto
+    ".V",     # Canada — TSX Venture
+    ".SA",    # Brazil
+    ".MX",    # Mexico
+    ".BA",    # Argentina
+    ".SN",    # Chile
+]
+
+# Region label shown to the user when a suffix is auto-resolved
+SUFFIX_REGION = {
+    "": "US", ".NS": "India (NSE)", ".BO": "India (BSE)", ".T": "Japan",
+    ".KS": "South Korea (KOSPI)", ".KQ": "South Korea (KOSDAQ)", ".HK": "Hong Kong",
+    ".SS": "China (Shanghai)", ".SZ": "China (Shenzhen)", ".TW": "Taiwan",
+    ".SI": "Singapore", ".AX": "Australia", ".NZ": "New Zealand", ".L": "UK",
+    ".DE": "Germany", ".PA": "France", ".AS": "Netherlands", ".SW": "Switzerland",
+    ".MI": "Italy", ".MC": "Spain", ".LS": "Portugal", ".ST": "Sweden",
+    ".OL": "Norway", ".CO": "Denmark", ".HE": "Finland", ".VI": "Austria",
+    ".BR": "Belgium", ".IR": "Ireland", ".IS": "Turkey", ".TA": "Israel",
+    ".SR": "Saudi Arabia", ".QA": "Qatar", ".AE": "UAE", ".KW": "Kuwait",
+    ".BH": "Bahrain", ".ZA": "South Africa", ".JO": "South Africa",
+    ".TO": "Canada", ".V": "Canada (TSXV)", ".SA": "Brazil", ".MX": "Mexico",
+    ".BA": "Argentina", ".SN": "Chile",
+}
+
 # --- SIDEBAR (permanently visible) ---
 with st.sidebar:
     st.markdown("### Tickers")
-    default_tickers = "AAPL, MSFT, JPM, TCS.BO, INFY.BO, ASML"
+    default_tickers = "AAPL, MSFT, JPM, TCS.BO, INFY.NS, ASML"
     assets = st.text_input("Comma-separated", default_tickers, label_visibility="collapsed")
     ticker_list = [t.strip().upper() for t in assets.split(",") if t.strip()]
+    st.markdown(
+        '<div class="resolve-note">Type a bare symbol (e.g. <b>7203</b>, <b>005930</b>, <b>2222</b>) '
+        'or add a suffix yourself. Unresolved symbols are auto-matched across '
+        'US, India, Japan, South Korea, China, Gulf, Europe & more.</div>',
+        unsafe_allow_html=True
+    )
 
     st.markdown("### Date Range")
     default_start = datetime(2020, 1, 2)
@@ -397,8 +472,70 @@ with st.sidebar:
 
     st.divider()
 
-# --- DATA FETCHING ---
-@st.cache_data(ttl=3600)
+# ═══════════════════════════════════════════════════════════════════════
+# DATA FETCHING — per-ticker, retrying, with global exchange auto-resolve
+# ═══════════════════════════════════════════════════════════════════════
+
+def _fetch_one(symbol, start_str, end_str, tries=3):
+    """Try to pull a single ticker's close price series with retries and
+    a couple of fallback methods, since yfinance intermittently drops or
+    rate-limits individual symbols inside batch calls."""
+    last_err = None
+    for attempt in range(tries):
+        try:
+            tk = yf.Ticker(symbol)
+            hist = tk.history(start=start_str, end=end_str, auto_adjust=True)
+            if hist is not None and not hist.empty and "Close" in hist.columns:
+                series = pd.to_numeric(hist["Close"], errors="coerce").dropna()
+                if len(series) > 5:
+                    return series
+            # fallback: batch-style download for this one symbol
+            raw = yf.download(symbol, start=start_str, end=end_str,
+                               progress=False, auto_adjust=True, threads=False)
+            if raw is not None and not raw.empty:
+                col = "Close" if "Close" in raw.columns else (
+                      "Adj Close" if "Adj Close" in raw.columns else None)
+                if col:
+                    series = pd.to_numeric(raw[col].squeeze(), errors="coerce").dropna()
+                    if len(series) > 5:
+                        return series
+        except Exception as e:
+            last_err = e
+        time.sleep(0.4 + attempt * 0.6 + random.uniform(0, 0.3))
+    return None
+
+
+def _resolve_ticker(raw_symbol, start_str, end_str):
+    """Try the symbol as typed first. If that fails, strip any suffix and
+    sweep major global exchange suffixes until one returns real data.
+    Returns (series, resolved_symbol) or (None, None)."""
+    raw_symbol = raw_symbol.strip().upper()
+
+    # 1) try exactly as given
+    series = _fetch_one(raw_symbol, start_str, end_str)
+    if series is not None:
+        return series, raw_symbol
+
+    # 2) strip an existing suffix (if any) to get the bare root symbol
+    if "." in raw_symbol:
+        root = raw_symbol.split(".")[0]
+    else:
+        root = raw_symbol
+
+    # 3) sweep candidate suffixes (skip the one already tried)
+    already_tried = raw_symbol
+    for suf in EXCHANGE_SUFFIXES:
+        candidate = f"{root}{suf}"
+        if candidate == already_tried:
+            continue
+        series = _fetch_one(candidate, start_str, end_str, tries=2)
+        if series is not None:
+            return series, candidate
+
+    return None, None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_clean_data(tickers, start, end):
     today_str = datetime.now().strftime('%Y-%m-%d')
     start_str = start.strftime('%Y-%m-%d') if hasattr(start, 'strftime') else str(start)
@@ -412,25 +549,20 @@ def get_clean_data(tickers, start, end):
 
     all_tickers = list(dict.fromkeys(tickers + ["^GSPC"]))
     close_prices = {}
+    resolved_map = {}   # original -> actually-used symbol (only when different)
+    failed = []
+
     for t in all_tickers:
-        for attempt in range(3):
-            try:
-                raw = yf.download(t, start=start_str, end=end_str,
-                                  progress=False, auto_adjust=True)
-                time.sleep(0.3)
-                if raw.empty: continue
-                col = 'Close' if 'Close' in raw.columns else (
-                      'Adj Close' if 'Adj Close' in raw.columns else None)
-                if col:
-                    series = pd.to_numeric(raw[col].squeeze(), errors='coerce').dropna()
-                    if len(series) > 5:
-                        close_prices[t] = series
-                        break
-            except Exception:
-                time.sleep(0.5)
+        series, resolved = _resolve_ticker(t, start_str, end_str)
+        if series is not None:
+            close_prices[resolved] = series
+            if resolved != t:
+                resolved_map[t] = resolved
+        else:
+            failed.append(t)
 
     if not close_prices:
-        return pd.DataFrame(), pd.Series(), {}
+        return pd.DataFrame(), pd.Series(), {}, resolved_map, failed
 
     df = pd.DataFrame(close_prices)
     if not isinstance(df.index, pd.DatetimeIndex):
@@ -441,9 +573,10 @@ def get_clean_data(tickers, start, end):
     assets_df  = df.dropna(axis=1, how='all')
 
     if assets_df.empty or len(assets_df) < 10:
-        return pd.DataFrame(), pd.Series(), {}
+        return pd.DataFrame(), pd.Series(), {}, resolved_map, failed
 
-    # Enhanced market caps with Indian stocks
+    # Approximate market caps (USD, billions) for the Black-Litterman prior.
+    # Falls back to 100 for anything not listed here — still lets the model run.
     fixed_caps = {
         # US Tech
         'AAPL':3000,'MSFT':2800,'GOOGL':1800,'AMZN':1600,'TSLA':600,'NVDA':2200,
@@ -451,19 +584,29 @@ def get_clean_data(tickers, start, end):
         'JPM':500,'V':500,'MA':400,'JNJ':380,'XOM':400,'WMT':450,'PG':350,
         # Europe
         'MC.PA':400,'ASML':350,'NESN.SW':300,
-        # Indian stocks (BSE/NSE)
-        'TCS.BO':200,'INFY.BO':180,'RELIANCE.BO':250,'HDFC.BO':150,'ICICIBANK.BO':120,
-        'HDFCBANK.BO':140,'ITC.BO':80,'SBIN.BO':110,'BAJAJFINSV.BO':100,'MARUTI.BO':90,
-        'WIPRO.BO':70,'AXISBANK.BO':95,'LT.BO':85,'BHARTIARTL.BO':75,'SUNPHARMA.BO':65
+        # Japan
+        '7203.T':280,'6758.T':130,'9984.T':90,'8306.T':110,
+        # South Korea
+        '005930.KS':380,'000660.KS':110,'035420.KS':30,
+        # China / HK
+        '0700.HK':400,'9988.HK':220,'0941.HK':230,
+        # Gulf
+        '2222.SR':1900,'1120.SR':50,
+        # India (NSE/BSE)
+        'TCS.BO':200,'TCS.NS':200,'INFY.BO':180,'INFY.NS':180,'RELIANCE.BO':250,
+        'RELIANCE.NS':250,'HDFCBANK.BO':140,'HDFCBANK.NS':140,'ITC.BO':80,'ITC.NS':80,
+        'SBIN.BO':110,'SBIN.NS':110,'BAJAJFINSV.BO':100,'MARUTI.BO':90,'MARUTI.NS':90,
+        'WIPRO.BO':70,'WIPRO.NS':70,'AXISBANK.BO':95,'LT.BO':85,'BHARTIARTL.BO':75,
+        'BHARTIARTL.NS':75,'SUNPHARMA.BO':65,'ICICIBANK.BO':120,'ICICIBANK.NS':120,
     }
     mcaps = {t: fixed_caps.get(t, 100) * 1e9 for t in assets_df.columns}
-    return assets_df, benchmark, mcaps
+    return assets_df, benchmark, mcaps, resolved_map, failed
+
 
 def apply_geopolitical_overlay(weights, events, intensity):
     if not events or intensity <= 0.5:
         return weights
-    
-    # Enhanced sector risk with India-specific events
+
     sector_risk = {
         'Technology':    {'US-China Tech Tensions':0.8,'Supply Chain Disruption':0.7,'Trade Policy Changes':0.6,'India Policy':0.2},
         'Financials':    {'Currency Volatility':0.6,'Middle East Instability':0.3,'Trade Policy Changes':0.4,'India Policy':0.3},
@@ -476,28 +619,34 @@ def apply_geopolitical_overlay(weights, events, intensity):
         'Banking':       {'Currency Volatility':0.7,'India Policy':0.4,'Trade Policy Changes':0.3},
         'Pharma':        {'EU Regulation Shift':0.6,'India Policy':0.3,'Trade Policy Changes':0.4},
     }
-    
+
     ticker_sectors = {
         'AAPL':'Technology','MSFT':'Technology','JPM':'Financials','MC.PA':'Consumer',
         'ASML':'Semiconductors','NESN.SW':'Healthcare','GOOGL':'Technology','AMZN':'Technology',
         'TSLA':'Automotive','NVDA':'Semiconductors','V':'Financials','JNJ':'Healthcare',
         'XOM':'Energy','WMT':'Consumer','PG':'Consumer','MA':'Financials',
-        # Indian stocks
-        'TCS.BO':'IT Services','INFY.BO':'IT Services','RELIANCE.BO':'Energy','HDFC.BO':'Banking',
-        'ICICIBANK.BO':'Banking','HDFCBANK.BO':'Banking','ITC.BO':'Consumer','SBIN.BO':'Banking',
-        'BAJAJFINSV.BO':'Financials','MARUTI.BO':'Automotive','WIPRO.BO':'IT Services',
-        'AXISBANK.BO':'Banking','LT.BO':'Automotive','BHARTIARTL.BO':'Consumer','SUNPHARMA.BO':'Pharma'
+        'TCS.BO':'IT Services','TCS.NS':'IT Services','INFY.BO':'IT Services','INFY.NS':'IT Services',
+        'RELIANCE.BO':'Energy','RELIANCE.NS':'Energy','HDFCBANK.BO':'Banking','HDFCBANK.NS':'Banking',
+        'ICICIBANK.BO':'Banking','ICICIBANK.NS':'Banking','ITC.BO':'Consumer','ITC.NS':'Consumer',
+        'SBIN.BO':'Banking','SBIN.NS':'Banking','BAJAJFINSV.BO':'Financials','MARUTI.BO':'Automotive',
+        'MARUTI.NS':'Automotive','WIPRO.BO':'IT Services','WIPRO.NS':'IT Services',
+        'AXISBANK.BO':'Banking','LT.BO':'Automotive','BHARTIARTL.BO':'Consumer',
+        'BHARTIARTL.NS':'Consumer','SUNPHARMA.BO':'Pharma',
+        '7203.T':'Automotive','6758.T':'Technology','9984.T':'Technology','8306.T':'Banking',
+        '005930.KS':'Semiconductors','000660.KS':'Semiconductors','035420.KS':'Technology',
+        '0700.HK':'Technology','9988.HK':'Technology','0941.HK':'Technology',
+        '2222.SR':'Energy','1120.SR':'Banking',
     }
-    
+
     adj = {}
     for ticker, w in weights.items():
-        if w == 0: 
+        if w == 0:
             adj[ticker] = 0
             continue
-        sector = ticker_sectors.get(ticker, 'Technology')  # Default fallback
+        sector = ticker_sectors.get(ticker, 'Technology')
         risk_score = sum(sector_risk.get(sector, {}).get(e, 0.1) for e in events)
         adj[ticker] = max(0.01, w * (1 - risk_score * intensity * 0.15))
-    
+
     total = sum(adj.values())
     return {k: v / total for k, v in adj.items()} if total > 0 else weights
 
@@ -661,21 +810,37 @@ def weight_table_html(final_weights):
 # ═══════════════════════════════════════════════════════════════════════════════
 try:
     if not ticker_list:
-        st.info("Enter tickers in the sidebar to begin. Use format: AAPL, TCS.BO, INFY.BO")
+        st.info("Enter tickers in the sidebar to begin. Bare symbols are auto-matched to the right global exchange.")
         st.stop()
 
-    with st.spinner("Fetching market data…"):
-        prices, bench_prices, market_caps = get_clean_data(
+    with st.spinner("Fetching market data across global exchanges…"):
+        prices, bench_prices, market_caps, resolved_map, failed_tickers = get_clean_data(
             ticker_list, start_date, end_date)
 
     if prices.empty:
-        st.error("No data returned. Check ticker symbols (use .BO for BSE, .NS for NSE) and date range.")
+        st.error("No data returned for any ticker. Check the symbols and date range, or try again — "
+                  "Yahoo Finance occasionally rate-limits requests.")
         st.stop()
 
-    available = [t for t in ticker_list if t in prices.columns]
-    missing   = set(ticker_list) - set(available)
-    if missing:
-        st.warning(f"Tickers not found: {', '.join(sorted(missing))} (use .BO for BSE, .NS for NSE India stocks)")
+    # Tickers whose resolved (post-auto-match) symbol is actually in the data
+    resolved_symbols = set(prices.columns)
+    available = []
+    for t in ticker_list:
+        candidate = resolved_map.get(t, t)
+        if candidate in resolved_symbols:
+            available.append(candidate)
+
+    still_missing = [t for t in ticker_list if t in failed_tickers]
+    if resolved_map:
+        notes = " · ".join(f"{orig} → {new}" for orig, new in resolved_map.items())
+        st.markdown(
+            f'<div class="resolve-note">Auto-resolved: <b>{notes}</b></div>',
+            unsafe_allow_html=True
+        )
+    if still_missing:
+        st.warning(f"Could not find data for: {', '.join(sorted(still_missing))}. "
+                    f"Try the exact Yahoo Finance symbol (e.g. .T for Japan, .KS for South Korea, "
+                    f".SR for Saudi Arabia, .HK for Hong Kong, .TA for Israel).")
     if not available:
         st.error("None of the entered tickers returned valid data.")
         st.stop()
@@ -685,7 +850,9 @@ try:
     market_caps = {t: market_caps[t] for t in ticker_list if t in market_caps}
 
     if view_ticker not in ticker_list:
-        view_ticker = ticker_list[0]
+        view_ticker = resolved_map.get(view_ticker, view_ticker)
+        if view_ticker not in ticker_list:
+            view_ticker = ticker_list[0]
 
     # Covariance
     try:
@@ -854,7 +1021,7 @@ try:
                            params_df.to_csv(index=False).encode(),
                            "strategy_parameters.csv", "text/csv")
 
-    # Disclaimer dropdown (clean, bullet points)
+    # Disclaimer dropdown
     st.markdown("""
     <div class="disclaimer-dropdown">
       <details>
