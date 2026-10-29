@@ -45,11 +45,45 @@ st.markdown("""
 
     /* FIX: keep the header (it holds the mobile sidebar open button) but make it invisible */
     [data-testid="stHeader"],
-    header[data-testid="stHeader"] { background: transparent !important; }
-    [data-testid="stToolbar"],
-    [data-testid="stStatusWidget"],
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+        height: 3rem !important;
+        z-index: 999990 !important;
+    }
+    /* hide only the unwanted pieces, NOT the whole toolbar (it can contain the sidebar button) */
+    [data-testid="stToolbarActions"],
+    [data-testid="stMainMenu"],
     [data-testid="stMainMenuPopover"],
+    [data-testid="stAppDeployButton"],
+    .stDeployButton,
+    [data-testid="stStatusWidget"],
     #stDecoration { display: none !important; visibility: hidden !important; }
+
+    /* make the sidebar open / close buttons always visible and tappable */
+    [data-testid="stExpandSidebarButton"],
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"],
+    [data-testid="stSidebarCollapseButton"] button,
+    [data-testid="stSidebarCollapseButton"] {
+        visibility: visible !important;
+        opacity: 1 !important;
+        z-index: 999999 !important;
+    }
+    [data-testid="stExpandSidebarButton"],
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"] {
+        display: flex !important;
+        background: var(--surface2) !important;
+        border: 1px solid var(--accent) !important;
+        border-radius: 6px !important;
+    }
+    [data-testid="stExpandSidebarButton"] *,
+    [data-testid="stSidebarCollapsedControl"] *,
+    [data-testid="collapsedControl"] *,
+    [data-testid="stSidebarCollapseButton"] * {
+        color: var(--accent) !important;
+        fill: var(--accent) !important;
+    }
 
     .block-container {
         padding-top: 1.8rem !important;
