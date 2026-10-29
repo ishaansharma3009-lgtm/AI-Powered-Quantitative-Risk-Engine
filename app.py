@@ -15,7 +15,7 @@ st.set_page_config(
     page_title="Quant Risk Engine",
     layout="wide",
     page_icon="◈",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto"   # FIX: was "expanded" -> sidebar covered the phone screen
 )
 
 st.markdown("""
@@ -43,12 +43,13 @@ st.markdown("""
 
     * { font-family: var(--font-mono) !important; }
 
+    /* FIX: keep the header (it holds the mobile sidebar open button) but make it invisible */
     [data-testid="stHeader"],
-    header[data-testid="stHeader"],
-    #stDecoration,
+    header[data-testid="stHeader"] { background: transparent !important; }
     [data-testid="stToolbar"],
     [data-testid="stStatusWidget"],
-    [data-testid="stMainMenuPopover"] { display: none !important; visibility: hidden !important; }
+    [data-testid="stMainMenuPopover"],
+    #stDecoration { display: none !important; visibility: hidden !important; }
 
     .block-container {
         padding-top: 1.8rem !important;
@@ -58,17 +59,36 @@ st.markdown("""
         max-width: 1600px !important;
     }
 
-    [data-testid="stSidebar"] {
-        min-width: 280px !important;
-        width: 280px !important;
-        transform: none !important;
-        visibility: visible !important;
-        display: block !important;
-        position: relative !important;
+    /* FIX: pinned sidebar on DESKTOP only */
+    @media (min-width: 992px) {
+        [data-testid="stSidebar"] {
+            min-width: 280px !important;
+            width: 280px !important;
+            transform: none !important;
+            visibility: visible !important;
+            display: block !important;
+            position: relative !important;
+        }
+        [data-testid="stSidebarCollapseButton"],
+        [data-testid="collapsedControl"] {
+            display: none !important;
+        }
     }
-    [data-testid="stSidebarCollapseButton"],
-    [data-testid="collapsedControl"] {
-        display: none !important;
+
+    /* FIX: mobile layout */
+    @media (max-width: 991px) {
+        .block-container {
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+            padding-top: 3rem !important;
+        }
+        .kpi-grid { grid-template-columns: repeat(2, 1fr) !important; }
+        .kpi-value { font-size: 1.4rem !important; }
+        .qre-header { flex-wrap: wrap; gap: 0.8rem !important; }
+        .qre-logo { font-size: 1.5rem !important; white-space: normal !important; }
+        .qre-subtitle { white-space: normal !important; }
+        .qre-badge { margin-left: 0 !important; }
+        .qre-tagline { align-self: flex-start !important; }
     }
 
     .disclaimer-dropdown {
@@ -429,7 +449,7 @@ SUFFIX_REGION = {
     ".BA": "Argentina", ".SN": "Chile",
 }
 
-# --- SIDEBAR (permanently visible) ---
+# --- SIDEBAR (pinned on desktop, collapsible on phone) ---
 with st.sidebar:
     st.markdown("### Tickers")
     default_tickers = "AAPL, MSFT, JPM, TCS.BO, INFY.NS, ASML"
